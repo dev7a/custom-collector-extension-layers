@@ -176,7 +176,7 @@ jobs:
       matrix: ${{ fromJSON(needs.prepare-release-jobs.outputs.release_jobs) }}
     with:
       artifact-name: opentelemetry-collector-layer-${{ matrix.architecture }}.zip
-      layer-name: opentelemetry-collector # Consider customizing this name
+      layer-name: opentelemetry-collector # Base layer name
       architecture: ${{ matrix.architecture }}
       runtimes: "nodejs18.x nodejs20.x nodejs22.x java17 java21 python3.9 python3.10 python3.11 python3.12 python3.13 dotnet6 dotnet8 provided.al2 provided.al2023"
       release-group: prod # Or make configurable

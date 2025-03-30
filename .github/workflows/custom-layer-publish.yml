@@ -76,37 +76,46 @@ jobs:
           fi
           echo "COMPATIBLE_RUNTIMES=$COMPATIBLE_RUNTIMES" >> $GITHUB_ENV
           
-          # Add collector version to layer name if provided
-          if [[ -n "${{ inputs.collector-version }}" ]]; then
-            LAYER_NAME=$LAYER_NAME-${{ inputs.collector-version }}
-            echo "Including collector version in layer name: ${{ inputs.collector-version }}"
-          fi
-          
           # Add distribution to layer name if specified and not default
           if [[ -n "${{ inputs.distribution }}" && "${{ inputs.distribution }}" != "default" ]]; then
             LAYER_NAME=$LAYER_NAME-${{ inputs.distribution }}
             echo "Including distribution in layer name: ${{ inputs.distribution }}"
           fi
           
-          if [[ "${{ inputs.release-group }}" != "prod" ]]; then
-            LAYER_NAME=$LAYER_NAME-${{ inputs.release-group }}
-          fi
-          
+          # Add version in a way that conforms to AWS naming requirements
           if [[ -n "${{ inputs.layer-version }}" ]]; then
             LAYER_VERSION="${{ inputs.layer-version }}"
+          elif [[ -n "${{ inputs.collector-version }}" ]]; then
+            # Extract the version number without the 'v' prefix if present
+            LAYER_VERSION=$(echo "${{ inputs.collector-version }}" | sed -r 's/^v//g')
           else
             # Fallback if GITHUB_REF_NAME is not available or doesn't contain version
             LAYER_VERSION=$(echo "$GITHUB_REF" | sed -r 's/.*\/[^0-9\\.]*//g' || echo "latest") 
           fi
-          # Replace dots with underscores for layer version part
-          LAYER_VERSION_CLEANED=$(echo "$LAYER_VERSION" | sed -r 's/[^a-zA-Z0-9_.-]/_/g' | sed 's/\./_/g')          
+          
+          # Clean up the version to conform to AWS Lambda layer naming rules
+          # Replace dots with underscores and remove any non-alphanumeric characters except - and _
+          LAYER_VERSION_CLEANED=$(echo "$LAYER_VERSION" | sed -r 's/[^a-zA-Z0-9_-]/_/g')
           
           if [[ -n "$LAYER_VERSION_CLEANED" ]]; then
             LAYER_NAME=$LAYER_NAME-$LAYER_VERSION_CLEANED
           fi
-          echo "LAYER_NAME=$LAYER_NAME" >> $GITHUB_ENV
           
-          echo "Final layer name: $LAYER_NAME"
+          if [[ "${{ inputs.release-group }}" != "prod" ]]; then
+            LAYER_NAME=$LAYER_NAME-${{ inputs.release-group }}
+          fi
+          
+          # Final cleanup: ensure layer name only contains allowed characters (a-zA-Z0-9-_)
+          LAYER_NAME_CLEANED=$(echo "$LAYER_NAME" | sed -r 's/[^a-zA-Z0-9_-]/_/g')
+          
+          # Ensure it doesn't start with a number (AWS requirement)
+          if [[ $LAYER_NAME_CLEANED =~ ^[0-9] ]]; then
+            LAYER_NAME_CLEANED="layer-$LAYER_NAME_CLEANED"
+          fi
+          
+          echo "LAYER_NAME=$LAYER_NAME_CLEANED" >> $GITHUB_ENV
+          
+          echo "Final layer name: $LAYER_NAME_CLEANED"
 
       - name: Download built layer
         uses: actions/download-artifact@v4
