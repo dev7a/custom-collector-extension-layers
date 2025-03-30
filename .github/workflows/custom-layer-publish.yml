@@ -1,0 +1,153 @@
+name: Custom Publish Lambda Layer # Renamed for clarity
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: 'This should correspond to a actions/upload-artifact name earlier in the build. The file name and the name of the artifact containing it must be equal.'
+        required: true
+        type: string
+      layer-name:
+        description: 'Layer name not including other parts like arch or version.'
+        required: true
+        type: string
+      # REMOVED component-version input
+      architecture:
+        description: '(optional) amd64 or arm64'
+        required: false
+        type: string
+      runtimes:
+        description: '(optional) a space delimited list of compatible runtimes (from https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html)'
+        required: false
+        type: string
+      release-group:
+        description: 'Release to dev or prod? "prod" yields empty value. (Default: dev)'
+        required: true
+        default: dev
+        type: string
+      aws_region:
+        description: 'Publish to which AWS region?'
+        required: true
+        type: string
+      role-arn:
+        description: '(optional) AWS IAM Role ARN to be assumed for publishing layer. If no input is given, defaults to `PROD_LAMBDA_ROLE_ARN` secret.'
+        required: false
+        type: string
+      layer-version:
+        description: '(optional) Layer version to be used in the layer name. If no input is given, its value is tried to be extracted from the `GITHUB_REF_NAME` variable'
+        required: false
+        type: string
+      distribution:
+        description: 'Distribution name to be included in the layer name'
+        required: false
+        type: string
+        default: 'default'
+      collector-version: # ADDED collector-version input
+        description: 'Version of the OpenTelemetry collector (read from VERSION file)'
+        required: false # Make optional in case reading fails
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish_layer:
+    runs-on: ubuntu-latest
+
+    steps:
+      # REMOVED Checkout and Read collector version steps (will be done in calling workflow)
+
+      - name: Construct Layer Name
+        shell: bash
+        run: |
+          LAYER_NAME=${{ inputs.layer-name }}
+          
+          if [[ -n "${{ inputs.architecture }}" ]]; then
+            LAYER_NAME=$LAYER_NAME-${{ inputs.architecture }}
+            ARCH=$(echo "${{ inputs.architecture }}" | sed -r 's/amd64/x86_64/g')
+          else
+            ARCH="x86_64 arm64"
+          fi
+          echo "ARCH=$ARCH" >> $GITHUB_ENV
+          
+          if [[ -n "${{ inputs.runtimes }}" ]]; then
+            COMPATIBLE_RUNTIMES="--compatible-runtimes ${{ inputs.runtimes }}"
+          fi
+          echo "COMPATIBLE_RUNTIMES=$COMPATIBLE_RUNTIMES" >> $GITHUB_ENV
+          
+          # Add collector version to layer name if provided
+          if [[ -n "${{ inputs.collector-version }}" ]]; then
+            LAYER_NAME=$LAYER_NAME-${{ inputs.collector-version }}
+            echo "Including collector version in layer name: ${{ inputs.collector-version }}"
+          fi
+          
+          # Add distribution to layer name if specified and not default
+          if [[ -n "${{ inputs.distribution }}" && "${{ inputs.distribution }}" != "default" ]]; then
+            LAYER_NAME=$LAYER_NAME-${{ inputs.distribution }}
+            echo "Including distribution in layer name: ${{ inputs.distribution }}"
+          fi
+          
+          if [[ "${{ inputs.release-group }}" != "prod" ]]; then
+            LAYER_NAME=$LAYER_NAME-${{ inputs.release-group }}
+          fi
+          
+          if [[ -n "${{ inputs.layer-version }}" ]]; then
+            LAYER_VERSION="${{ inputs.layer-version }}"
+          else
+            # Fallback if GITHUB_REF_NAME is not available or doesn't contain version
+            LAYER_VERSION=$(echo "$GITHUB_REF" | sed -r 's/.*\/[^0-9\\.]*//g' || echo "latest") 
+          fi
+          # Replace dots with underscores for layer version part
+          LAYER_VERSION_CLEANED=$(echo "$LAYER_VERSION" | sed -r 's/[^a-zA-Z0-9_.-]/_/g' | sed 's/\./_/g')          
+          
+          if [[ -n "$LAYER_VERSION_CLEANED" ]]; then
+            LAYER_NAME=$LAYER_NAME-$LAYER_VERSION_CLEANED
+          fi
+          echo "LAYER_NAME=$LAYER_NAME" >> $GITHUB_ENV
+          
+          echo "Final layer name: $LAYER_NAME"
+
+      - name: Download built layer
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.role-arn || secrets.OTEL_LAMBDA_LAYER_PUBLISH_ROLE_ARN || secrets.PROD_LAMBDA_ROLE_ARN }}
+          role-duration-seconds: 1200
+          aws-region: ${{ inputs.aws_region }}
+          mask-aws-account-id: true # Keep masking enabled
+
+      - name: Publish Lambda Layer
+        id: publish
+        run: |
+          echo "Publishing layer with name: $LAYER_NAME"
+          LAYER_ARN=$(
+            aws lambda publish-layer-version \
+              --layer-name $LAYER_NAME \
+              --license-info "Apache 2.0" \
+              --compatible-architectures $ARCH \
+              $COMPATIBLE_RUNTIMES \
+              --zip-file fileb://${{ inputs.artifact-name }} \
+              --query 'LayerVersionArn' \
+              --output text
+          )
+          # Removed component-version from notice
+          echo "::notice ::Published Layer ARN: $LAYER_ARN" 
+          echo "layer_arn=$LAYER_ARN" >> $GITHUB_OUTPUT
+
+      - name: Make Layer Public
+        run: |
+          LAYER_VERSION=$(
+            aws lambda list-layer-versions \
+              --layer-name $LAYER_NAME \
+              --query 'max_by(LayerVersions, &Version).Version'
+          )
+          aws lambda add-layer-version-permission \
+            --layer-name $LAYER_NAME \
+            --version-number $LAYER_VERSION \
+            --principal "*" \
+            --statement-id publish \
+            --action lambda:GetLayerVersion
