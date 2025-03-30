@@ -95,175 +95,31 @@ jobs:
     strategy:
       matrix: ${{ fromJSON(needs.prepare-build-jobs.outputs.build_jobs) }}
     steps:
-      - name: Checkout Upstream Repo
+      - name: Checkout This Repo
         uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.upstream-repo }}
-          ref: ${{ inputs.upstream-ref }}
-          path: upstream # Checkout upstream to a specific directory
-
-      - name: Checkout Customizations Repo (This Repo)
-        uses: actions/checkout@v4
-        with:
-          path: custom # Checkout this repo to another directory
-
-      - name: Overlay Custom Files
-        run: |
-          echo "Overlaying custom components..."
-          # Copy everything from custom/components/ into upstream/
-          if [ -d "custom/components" ]; then
-            cp -r custom/components/* upstream/
-            echo "Copied files from custom/components."
-          else
-            echo "No custom/components directory found to overlay."
-          fi
-          # List what was copied for debugging
-          find upstream/collector/lambdacomponents -type f | grep -v '\.go$' || true
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '~1.21.9'
 
-      - name: Fix Go Module Dependencies
-        working-directory: ./upstream/collector
+      - name: Build Layer using build-extension-layer.sh
         run: |
-          # Detect the OpenTelemetry version from the upstream go.mod
-          echo "Detecting OpenTelemetry version from upstream go.mod..."
-          # Try to extract OTEL version from go.mod using grep and sed
-          OTEL_VERSION=$(grep -E "go.opentelemetry.io/collector " go.mod | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/v\1/')
-          
-          # Check if we found a version
-          if [ -z "$OTEL_VERSION" ]; then
-            # Try alternate pattern with require syntax
-            OTEL_VERSION=$(grep -E "require go.opentelemetry.io/collector " go.mod | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/v\1/')
-          fi
-          
-          # If still not found, fall back to a default version
-          if [ -z "$OTEL_VERSION" ]; then
-            echo "Could not detect OTEL version from go.mod, using default v0.122.1"
-            OTEL_VERSION="v0.122.1"
-          fi
-          
-          echo "Using OpenTelemetry version: $OTEL_VERSION"
-          
-          # Instead of directly editing go.mod, use go get to ensure proper dependency resolution
-          echo "Installing OpenTelemetry modules with consistent versions..."
-          
-          # Initialize dependency list
-          OTEL_DEPS=(
-            "go.opentelemetry.io/collector@$OTEL_VERSION"
-            "go.opentelemetry.io/collector/exporter@$OTEL_VERSION"
-            "go.opentelemetry.io/collector/processor@$OTEL_VERSION"
-            "go.opentelemetry.io/collector/receiver@$OTEL_VERSION"
-            "go.opentelemetry.io/collector/extension@$OTEL_VERSION"
-            "go.opentelemetry.io/collector/connector@$OTEL_VERSION"
-            "go.opentelemetry.io/collector/pdata@v1.28.1"
-            "go.opentelemetry.io/collector/consumer@v1.28.1"
-          )
-          
-          # Install dependencies in the main module
-          echo "Installing dependencies in collector module..."
-          for dep in "${OTEL_DEPS[@]}"; do
-            echo "Installing $dep"
-            go get "$dep"
-          done
-          
-          # Also install specific test packages that might cause issues
-          go get go.opentelemetry.io/collector/component/componenttest@$OTEL_VERSION
-          go get go.opentelemetry.io/collector/consumer/consumertest@$OTEL_VERSION
-          go get go.opentelemetry.io/collector/pdata/testdata@$OTEL_VERSION
-          
-          # Remove debugexporter usage if it causes problems
-          if grep -q "debugexporter" lambdacomponents/exporter/debug.go 2>/dev/null; then
-            echo "Found debug exporter usage, handling potential incompatibility..."
-            # Check if the problematic package exists
-            if ! go list -m go.opentelemetry.io/collector/exporter/internal/requesttest &>/dev/null; then
-              echo "Warning: Requesttest package not found - will modify debug.go if present"
-              # If the file exists, comment out the problematic code
-              if [ -f "lambdacomponents/exporter/debug.go" ]; then
-                echo "Disabling debug exporter in lambdacomponents/exporter/debug.go"
-                sed -i.bak 's|"go.opentelemetry.io/collector/exporter/debugexporter"|// "go.opentelemetry.io/collector/exporter/debugexporter"|g' lambdacomponents/exporter/debug.go
-                sed -i.bak 's|return debugexporter.NewFactory()|// Debug exporter disabled due to compatibility issue\n\t\treturn nil|g' lambdacomponents/exporter/debug.go
-              fi
-            fi
-          fi
-          
-          # Update the lambdacomponents go.mod if it exists
-          if [ -f "./lambdacomponents/go.mod" ]; then
-            echo "Updating lambdacomponents module..."
-            cd ./lambdacomponents
-            
-            # Install dependencies in the lambdacomponents module
-            for dep in "${OTEL_DEPS[@]}"; do
-              echo "Installing $dep in lambdacomponents"
-              go get "$dep"
-            done
-            cd ..
-          fi
-
-      - name: Tidy Go Modules (Collector)
-        working-directory: ./upstream/collector
-        run: go mod tidy
-
-      - name: Tidy Go Modules (LambdaComponents)
-        # Run only if lambdacomponents has its own go.mod
-        if: ${{ hashFiles('upstream/collector/lambdacomponents/go.mod') != '' }}
-        working-directory: ./upstream/collector/lambdacomponents
-        run: go mod tidy
-
-      - name: Build Collector
-        working-directory: ./upstream # Run make from the upstream root
-        run: |
-          # Initialize variables
-          BUILDTAGS=""
-          DISTRIBUTION="${{ inputs.distribution }}"
-          CUSTOM_TAGS="${{ inputs.build-tags }}"
-
-          # Determine BUILDTAGS using a case statement
-          case "$DISTRIBUTION" in
-            minimal)
-              BUILDTAGS="lambdacomponents.custom,lambdacomponents.receiver.otlp,lambdacomponents.processor.batch"
-              ;;
-            clickhouse)
-              # Ensure your custom clickhouse tag is included
-              BUILDTAGS="lambdacomponents.custom,lambdacomponents.receiver.otlp,lambdacomponents.processor.batch,lambdacomponents.exporter.clickhouse"
-              ;;
-            clickhouse-otlphttp)
-              BUILDTAGS="lambdacomponents.custom,lambdacomponents.receiver.otlp,lambdacomponents.processor.batch,lambdacomponents.exporter.clickhouse,lambdacomponents.exporter.otlphttp"
-              ;;
-            full)
-              # Requires 'lambdacomponents.custom' to opt-in, and 'lambdacomponents.all' to include everything defined under the custom build tag
-              BUILDTAGS="lambdacomponents.custom,lambdacomponents.all"
-              ;;
-            custom)
-              if [[ -n "$CUSTOM_TAGS" ]]; then
-                BUILDTAGS="$CUSTOM_TAGS"
-                # Ensure lambdacomponents.custom is present if custom tags are provided
-                if [[ "$BUILDTAGS" != *"lambdacomponents.custom"* ]]; then
-                   BUILDTAGS="lambdacomponents.custom,$BUILDTAGS"
-                fi
-              else
-                # If distribution is custom but no tags provided, default to just the custom tag.
-                BUILDTAGS="lambdacomponents.custom"
-              fi
-              ;;
-            default | *) # Handle 'default' or any unexpected value
-              BUILDTAGS="" # Ensure it's empty for the default build
-              ;;
-          esac
-
-          echo "Distribution selected: $DISTRIBUTION"
-          echo "Build tags determined: $BUILDTAGS"
-          # Run make from within the checked-out upstream collector directory
-          make -C collector package GOARCH=${{ matrix.architecture }} BUILDTAGS=$BUILDTAGS
+          mkdir -p ./build
+          chmod +x ./scripts/build-extension-layer.sh
+          ./scripts/build-extension-layer.sh \
+            --upstream-repo ${{ inputs.upstream-repo }} \
+            --upstream-ref ${{ inputs.upstream-ref }} \
+            --distribution ${{ inputs.distribution }} \
+            --arch ${{ matrix.architecture }} \
+            --build-tags "${{ inputs.build-tags }}" \
+            --output-dir ./build
 
       - name: Upload Collector Artifact
         uses: actions/upload-artifact@v4
         with:
           name: opentelemetry-collector-layer-${{ matrix.architecture }}.zip
-          # Path is relative to the GITHUB_WORKSPACE, which contains the upstream checkout
-          path: ${{ github.workspace }}/upstream/collector/build/opentelemetry-collector-layer-${{ matrix.architecture }}.zip
+          path: ./build/opentelemetry-collector-layer-${{ matrix.architecture }}.zip
 
   prepare-release-jobs:
     needs: build-layer
@@ -272,8 +128,8 @@ jobs:
       release_jobs: ${{ steps.prepare-release-jobs.outputs.release_jobs }}
       collector-version: ${{ steps.collector-version.outputs.version }}
     steps:
-      # Checkout upstream again to read VERSION file
-      - name: Checkout Upstream Repo for VERSION file
+      # Checkout upstream repo to get version information
+      - name: Checkout Upstream Repo
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.upstream-repo }}
@@ -300,7 +156,7 @@ jobs:
 
       - name: Read collector version from Upstream
         id: collector-version
-        working-directory: ./upstream # Read from the checked-out upstream repo
+        working-directory: ./upstream
         run: |
           if [ -f "./collector/VERSION" ]; then
             COLLECTOR_VERSION=$(cat ./collector/VERSION)
