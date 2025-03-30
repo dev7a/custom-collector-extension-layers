@@ -125,6 +125,49 @@ jobs:
         with:
           go-version: '~1.21.9'
 
+      - name: Fix Go Module Dependencies
+        working-directory: ./upstream/collector
+        run: |
+          # Detect the OpenTelemetry version from the upstream go.mod
+          echo "Detecting OpenTelemetry version from upstream go.mod..."
+          # Try to extract OTEL version from go.mod using grep and sed
+          OTEL_VERSION=$(grep -E "go.opentelemetry.io/collector " go.mod | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/v\1/')
+          
+          # Check if we found a version
+          if [ -z "$OTEL_VERSION" ]; then
+            # Try alternate pattern with require syntax
+            OTEL_VERSION=$(grep -E "require go.opentelemetry.io/collector " go.mod | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/v\1/')
+          fi
+          
+          # If still not found, fall back to a default version
+          if [ -z "$OTEL_VERSION" ]; then
+            echo "Could not detect OTEL version from go.mod, using default v0.122.1"
+            OTEL_VERSION="v0.122.1"
+          fi
+          
+          echo "Using OpenTelemetry version: $OTEL_VERSION"
+          
+          # Update go.mod to ensure consistent versions of OpenTelemetry modules
+          go mod edit -require go.opentelemetry.io/collector@$OTEL_VERSION
+          go mod edit -require go.opentelemetry.io/collector/exporter@$OTEL_VERSION
+          go mod edit -require go.opentelemetry.io/collector/processor@$OTEL_VERSION
+          go mod edit -require go.opentelemetry.io/collector/receiver@$OTEL_VERSION
+          go mod edit -require go.opentelemetry.io/collector/extension@$OTEL_VERSION
+          go mod edit -require go.opentelemetry.io/collector/connector@$OTEL_VERSION
+          
+          # Update the lambdacomponents go.mod if it exists
+          if [ -f "./lambdacomponents/go.mod" ]; then
+            echo "Updating lambdacomponents go.mod..."
+            cd ./lambdacomponents
+            go mod edit -require go.opentelemetry.io/collector@$OTEL_VERSION
+            go mod edit -require go.opentelemetry.io/collector/exporter@$OTEL_VERSION
+            go mod edit -require go.opentelemetry.io/collector/processor@$OTEL_VERSION
+            go mod edit -require go.opentelemetry.io/collector/receiver@$OTEL_VERSION
+            go mod edit -require go.opentelemetry.io/collector/extension@$OTEL_VERSION
+            go mod edit -require go.opentelemetry.io/collector/connector@$OTEL_VERSION
+            cd ..
+          fi
+
       - name: Tidy Go Modules (Collector)
         working-directory: ./upstream/collector
         run: go mod tidy
