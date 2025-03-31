@@ -64,10 +64,10 @@ on:
         default: 'main'
 
 
-# Add permissions required to match layer-publish.yml
+# Add permissions required to match layer-publish.yml AND for release creation
 permissions:
   id-token: write
-  contents: read
+  contents: write 
 
 jobs:
   prepare-build-jobs:
@@ -233,3 +233,123 @@ jobs:
           path: |
             LAYERS-*.md
           retention-days: 90
+
+  # New Job for creating GitHub Release
+  create-github-release:
+    needs: [release-layer, generate-layers-report] # Run after publishing and report generation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9' # Match version used elsewhere
+          cache: 'pip'
+          cache-dependency-path: 'scripts/generate_release_notes.py' # Cache based on script
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install boto3
+
+      - name: Configure AWS credentials (for release notes script)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.OTEL_LAMBDA_LAYER_PUBLISH_ROLE_ARN }}
+          role-duration-seconds: 1200
+          aws-region: us-east-1 # Use a default region for querying DynamoDB
+          mask-aws-account-id: true
+
+      - name: Determine Release Info
+        id: release_info
+        run: |
+          DISTRIBUTION="${{ github.event.inputs.distribution }}"
+          COLLECTOR_VERSION="${{ needs.prepare-release-jobs.outputs.collector-version }}"
+          CUSTOM_BUILD_TAGS_INPUT="${{ github.event.inputs.build-tags }}"
+
+          # --- Replicate get_build_tags logic from Python script --- 
+          BUILD_TAGS=""
+          case "$DISTRIBUTION" in
+            minimal)
+              BUILD_TAGS="lambdacomponents.custom,lambdacomponents.receiver.otlp,lambdacomponents.processor.batch"
+              ;;
+            clickhouse)
+              BUILD_TAGS="lambdacomponents.custom,lambdacomponents.receiver.otlp,lambdacomponents.processor.batch,lambdacomponents.exporter.clickhouse"
+              ;;
+            clickhouse-otlphttp)
+              BUILD_TAGS="lambdacomponents.custom,lambdacomponents.receiver.otlp,lambdacomponents.processor.batch,lambdacomponents.exporter.clickhouse,lambdacomponents.exporter.otlphttp"
+              ;;
+            full)
+              BUILD_TAGS="lambdacomponents.custom,lambdacomponents.all"
+              ;;
+            custom)
+              if [[ -n "$CUSTOM_BUILD_TAGS_INPUT" ]]; then
+                  BUILD_TAGS="$CUSTOM_BUILD_TAGS_INPUT"
+                  # Ensure lambdacomponents.custom is present
+                  if [[ "$BUILD_TAGS" != *"lambdacomponents.custom"* ]]; then
+                      BUILD_TAGS="lambdacomponents.custom,$BUILD_TAGS"
+                  fi
+              else
+                  BUILD_TAGS="lambdacomponents.custom"
+              fi
+              ;;
+            default | *)
+              BUILD_TAGS="" # Default build with no special tags
+              ;;
+          esac
+          # --- End of get_build_tags logic --- 
+
+          # Clean collector version for tag/name (remove 'v' prefix)
+          VERSION_TAG_PART=$(echo "$COLLECTOR_VERSION" | sed 's/^v//')
+          TAG="${DISTRIBUTION}-v${VERSION_TAG_PART}"
+          TITLE="Release ${DISTRIBUTION} v${VERSION_TAG_PART}"
+          
+          echo "Derived Build Tags: $BUILD_TAGS"
+          echo "Release Tag: $TAG"
+          echo "Release Title: $TITLE"
+          
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "title=$TITLE" >> $GITHUB_OUTPUT
+          echo "build_tags=$BUILD_TAGS" >> $GITHUB_OUTPUT
+          echo "collector_version=$COLLECTOR_VERSION" >> $GITHUB_OUTPUT
+          echo "distribution=$DISTRIBUTION" >> $GITHUB_OUTPUT
+
+      - name: Generate Release Body
+        id: generate_notes
+        run: |
+          python scripts/generate_release_notes.py \
+            --distribution "${{ steps.release_info.outputs.distribution }}" \
+            --collector-version "${{ steps.release_info.outputs.collector_version }}" \
+            --build-tags "${{ steps.release_info.outputs.build_tags }}" \
+            > release_notes.md
+          echo "Generated release_notes.md"
+          # Optional: Cat the file for debugging
+          # cat release_notes.md
+
+      - name: Download Layer Artifacts (amd64)
+        uses: actions/download-artifact@v4
+        with:
+          name: opentelemetry-collector-layer-amd64.zip
+          path: ./release-assets/
+        if: ${{ github.event.inputs.architecture == 'all' || github.event.inputs.architecture == 'amd64' }}
+
+      - name: Download Layer Artifacts (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: opentelemetry-collector-layer-arm64.zip
+          path: ./release-assets/
+        if: ${{ github.event.inputs.architecture == 'all' || github.event.inputs.architecture == 'arm64' }}
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Alternative if gh needs GH_TOKEN
+        run: |
+          echo "Creating release ${{ steps.release_info.outputs.tag }}"
+          gh release create ${{ steps.release_info.outputs.tag }} \
+            --title "${{ steps.release_info.outputs.title }}" \
+            --notes-file release_notes.md \
+            ./release-assets/*.zip # Upload all zip files in the assets dir
+          echo "Release created successfully."

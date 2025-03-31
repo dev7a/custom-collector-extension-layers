@@ -311,14 +311,14 @@ def write_metadata_to_dynamodb(metadata: dict) -> bool:
     item_to_write = {k: v for k, v in metadata.items() if v is not None}
     
     try:
-        dynamodb = boto3.resource('dynamodb', region_name=metadata['region']) # Use layer region
+        dynamodb = boto3.resource('dynamodb', region_name='us-east-1') # New: Always use us-east-1
         table = dynamodb.Table(DYNAMODB_TABLE_NAME)
         
         response = table.put_item(Item=item_to_write)
         
         status_code = response.get('ResponseMetadata', {}).get('HTTPStatusCode')
         if status_code == 200:
-            print(f"Successfully wrote metadata for {metadata['layer_arn']} to DynamoDB.")
+            print(f"Successfully wrote metadata for {metadata['layer_arn']} to DynamoDB in us-east-1.")
             return True
         else:
             print(f"DynamoDB put_item failed with status code {status_code}. Response: {response}", file=sys.stderr)
@@ -328,9 +328,9 @@ def write_metadata_to_dynamodb(metadata: dict) -> bool:
         print(f"DynamoDB ClientError writing metadata: {e}", file=sys.stderr)
         error_code = e.response.get('Error', {}).get('Code')
         if error_code == 'ResourceNotFoundException':
-            print(f"Error: DynamoDB table '{DYNAMODB_TABLE_NAME}' not found in region {metadata['region']}. Please ensure it exists.", file=sys.stderr)
+            print(f"Error: DynamoDB table '{DYNAMODB_TABLE_NAME}' not found in region us-east-1. Please ensure it exists.", file=sys.stderr)
         elif error_code == 'AccessDeniedException':
-             print(f"Error: Access denied writing to DynamoDB table '{DYNAMODB_TABLE_NAME}'. Check IAM permissions.", file=sys.stderr)
+             print(f"Error: Access denied writing to DynamoDB table '{DYNAMODB_TABLE_NAME}' in us-east-1. Check IAM permissions.", file=sys.stderr)
         # Add more specific error handling as needed
         return False
     except Exception as e:
@@ -405,6 +405,50 @@ def set_github_output(name: str, value: str) -> None:
              print(f"Error writing to GITHUB_OUTPUT: {e}", file=sys.stderr)
 
 
+def check_and_repair_dynamodb(args, existing_layer_arn: str, md5_hash: str, layer_version_str: str):
+    """Checks if metadata for an existing layer ARN is in DynamoDB and adds it if missing."""
+    print(f"Checking DynamoDB for existing layer: {existing_layer_arn}")
+    pk = args.distribution
+    sk = existing_layer_arn
+    
+    try:
+        dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+        table = dynamodb.Table(DYNAMODB_TABLE_NAME)
+        
+        response = table.get_item(Key={'pk': pk, 'sk': sk})
+        
+        if 'Item' not in response:
+            print(f"Metadata for {existing_layer_arn} not found in DynamoDB. Repairing...")
+            # Construct the metadata dictionary exactly as in the successful publish path
+            metadata = {
+                'pk': pk,
+                'sk': sk,
+                'layer_arn': existing_layer_arn,
+                'region': args.region,
+                'base_name': args.layer_name,
+                'architecture': args.architecture,
+                'distribution': args.distribution,
+                'layer_version_str': layer_version_str,
+                'collector_version_input': args.collector_version,
+                'md5_hash': md5_hash,
+                'publish_timestamp': datetime.now(timezone.utc).isoformat(), # Use current time for repair timestamp
+                'compatible_runtimes': set(args.runtimes.split()) if args.runtimes else None
+            }
+            # Attempt to write the missing record
+            write_success = write_metadata_to_dynamodb(metadata)
+            if write_success:
+                print("Successfully repaired missing DynamoDB record.")
+            else:
+                print("Warning: Failed to repair missing DynamoDB record.", file=sys.stderr)
+        else:
+            print(f"Metadata for {existing_layer_arn} already exists in DynamoDB. No repair needed.")
+            
+    except ClientError as e:
+        print(f"DynamoDB ClientError during check/repair for {existing_layer_arn}: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"An unexpected error occurred during DynamoDB check/repair: {e}", file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(description='AWS Lambda Layer Publisher')
     # Priority: Argument > Environment Variable > Default
@@ -444,7 +488,7 @@ def main():
     
     # Step 1: Construct layer name
     layer_name, arch_str, layer_version_str = construct_layer_name(
-        args.layer_name, # Base name like 'opentelemetry-collector'
+        args.layer_name, 
         args.architecture,
         args.distribution,
         args.layer_version,
@@ -455,17 +499,19 @@ def main():
     # Step 2: Calculate MD5 hash
     md5_hash = calculate_md5(args.artifact_name)
     
-    # Step 3: Check if layer exists
-    skip_publish, existing_layer = check_layer_exists(layer_name, md5_hash, args.region)
+    # Step 3: Check if layer exists using Lambda API
+    skip_publish, existing_layer_arn = check_layer_exists(layer_name, md5_hash, args.region)
     
     # Set output for GitHub Actions early
     set_github_output("skip_publish", str(skip_publish).lower())
     
-    layer_arn = existing_layer
-    dynamo_success = False # Track if metadata write succeeds
+    layer_arn = existing_layer_arn # Use existing ARN if found
+    dynamo_write_attempted = False
+    dynamo_success = False
     
     # Step 4: Publish layer if needed
     if not skip_publish:
+        print("Publishing new layer version...")
         layer_arn = publish_layer(
             layer_name, 
             args.artifact_name, 
@@ -474,66 +520,71 @@ def main():
             arch_str,
             args.runtimes
         )
-    
-    if layer_arn:
-        set_github_output("layer_arn", layer_arn)
-        
-        # Step 5: Make layer public
-        public_success = make_layer_public(layer_name, layer_arn, args.region)
-        
-        if public_success:
-            # Step 5.5: Write Metadata to DynamoDB (Only after successful publish & make public)
-            print("Preparing metadata for DynamoDB...")
-            metadata = {
-                'pk': args.distribution,  # Partition Key
-                'sk': layer_arn,          # Sort Key
-                'layer_arn': layer_arn,
-                'region': args.region,
-                'base_name': args.layer_name, # The input base name
-                'architecture': args.architecture,
-                'distribution': args.distribution,
-                # Use the version string derived during name construction
-                'layer_version_str': layer_version_str, 
-                'collector_version_input': args.collector_version,
-                'md5_hash': md5_hash,
-                'publish_timestamp': datetime.now(timezone.utc).isoformat(),
-                # Convert runtimes string to set if not None/empty
-                'compatible_runtimes': set(args.runtimes.split()) if args.runtimes else None 
-            }
+        if layer_arn:
+            # Step 5: Make newly published layer public
+            public_success = make_layer_public(layer_name, layer_arn, args.region)
             
-            dynamo_success = write_metadata_to_dynamodb(metadata)
-            if not dynamo_success:
-                 print("Warning: Layer published and made public, but failed to write metadata to DynamoDB.", file=sys.stderr)
-                 # Decide if this should be a fatal error for the workflow? 
-                 # For now, we proceed but the state is inconsistent.
+            if public_success:
+                # Step 5.5: Write Metadata for NEW layer to DynamoDB
+                print("Preparing metadata for new layer for DynamoDB...")
+                metadata = {
+                    'pk': args.distribution,
+                    'sk': layer_arn,
+                    'layer_arn': layer_arn,
+                    'region': args.region,
+                    'base_name': args.layer_name,
+                    'architecture': args.architecture,
+                    'distribution': args.distribution,
+                    'layer_version_str': layer_version_str,
+                    'collector_version_input': args.collector_version,
+                    'md5_hash': md5_hash,
+                    'publish_timestamp': datetime.now(timezone.utc).isoformat(),
+                    'compatible_runtimes': set(args.runtimes.split()) if args.runtimes else None
+                }
+                dynamo_write_attempted = True
+                dynamo_success = write_metadata_to_dynamodb(metadata)
+                if not dynamo_success:
+                     print("Warning: Layer published and made public, but failed to write metadata to DynamoDB.", file=sys.stderr)
+            else:
+                print(f"Warning: Layer {layer_arn} was published but could not be made public. Skipping DynamoDB write.", file=sys.stderr)
         else:
-            print(f"Warning: Layer {layer_arn} was published but could not be made public. Skipping DynamoDB write.", file=sys.stderr)
+             # Handle case where publishing failed
+             print(f"Layer publishing failed for {layer_name} in {args.region}. No ARN generated.", file=sys.stderr)
+             sys.exit(1) # Exit if publish fails
+             
+    # --- Logic for skipped publish --- 
+    elif skip_publish and existing_layer_arn:
+        print(f"Layer with MD5 {md5_hash} already exists: {existing_layer_arn}. Skipping publish.")
+        layer_arn = existing_layer_arn # Ensure layer_arn is set to the existing one
         
-        # Step 6: Create summary (Now includes DynamoDB status)
+        # NEW: Check if the metadata for this existing layer is in DynamoDB and repair if needed
+        check_and_repair_dynamodb(args, existing_layer_arn, md5_hash, layer_version_str)
+        # Note: We don't set dynamo_success here, as the goal was just checking/repairing.
+        # The summary will correctly reflect 'Reused existing layer'.
+        
+    # --- End of skipped publish logic ---
+    
+    # Step 6: Create summary (only if we have a valid ARN, either new or existing)
+    if layer_arn:
         create_github_summary(
             layer_name,
             args.region,
-            layer_arn,
+            layer_arn, # Use the ARN (new or existing)
             md5_hash,
-            skip_publish,
+            skip_publish, # Pass the result of the initial check
             args.artifact_name,
             args.distribution,
             args.architecture,
             args.collector_version
-            # Pass dynamo_success here when implemented in create_github_summary
+            # TODO: Pass dynamo_success status to summary if needed?
         )
+        # Set layer_arn output if it wasn't set earlier (in case of skip_publish)
+        set_github_output("layer_arn", layer_arn) 
     else:
-        # Handle case where publishing failed or was skipped and no existing ARN was found
-        if skip_publish:
-             print(f"Layer with MD5 {md5_hash} already exists: {existing_layer}")
-             # Create summary for skipped publish
-             create_github_summary(layer_name, args.region, existing_layer, md5_hash, True, 
-                                 args.artifact_name, args.distribution, args.architecture, args.collector_version)
-        else:
-            print(f"Layer publishing failed for {layer_name} in {args.region}. No ARN generated.", file=sys.stderr)
-            # Potentially create a failure summary or exit non-zero
-            # For now, just print error and exit
-            sys.exit(1)
+        # This case should ideally not be reached if publishing failed (exited) 
+        # or if skip_publish was true but existing_layer_arn was somehow None
+        print("Error: No valid layer ARN available to generate summary.", file=sys.stderr)
+        # Consider exiting non-zero here if appropriate
 
 
 if __name__ == "__main__":
