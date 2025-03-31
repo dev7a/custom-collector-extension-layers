@@ -91,7 +91,8 @@ print(f"Determined Build Tags: {build_tags}")
 version_tag_part = collector_version.lstrip('v')
 # Always include release group in tag and title
 release_tag = f"{distribution}-v{version_tag_part}-{release_group}"
-release_title = f"Release {distribution} v{version_tag_part} ({release_group})"
+# Use requested title format: Release distribution:<name> v<version> (<group>)
+release_title = f"Release distribution:{distribution} v{version_tag_part} ({release_group})"
 
 print(f"Release Tag: {release_tag}")
 print(f"Release Title: {release_title}")
