@@ -234,6 +234,10 @@ jobs:
     needs: [release-layer, generate-layers-report] # Run after publishing and report generation
     runs-on: ubuntu-latest
     steps:
+      - name: Dump Needs Context
+        run: |
+          echo "Needs Context: ${{ toJSON(needs) }}"
+
       - name: Checkout code
         uses: actions/checkout@v4
 
