@@ -32,10 +32,6 @@ on:
           - us-east-2
           - us-west-2
         default: all
-      role-arn:
-        description: 'AWS IAM Role ARN to be assumed for publishing layer'
-        required: false
-        type: string
       layer-version:
         description: 'Layer version to be appended into the layer name'
         required: false
@@ -182,7 +178,6 @@ jobs:
       runtimes: "nodejs18.x nodejs20.x nodejs22.x java17 java21 python3.9 python3.10 python3.11 python3.12 python3.13 dotnet6 dotnet8 provided.al2 provided.al2023"
       release-group: prod # Or make configurable
       aws_region: ${{ matrix.aws_region }}
-      role-arn: ${{ github.event.inputs.role-arn }}
       layer-version: ${{ github.event.inputs.layer-version }}
       distribution: ${{ github.event.inputs.distribution }}
       collector-version: ${{ needs.prepare-release-jobs.outputs.collector-version }}
