@@ -18,6 +18,7 @@ on:
         type: choice
         options:
           - all
+          - ca-central-1
           - ca-west-1
           - eu-central-1
           - eu-central-2
@@ -148,7 +149,7 @@ jobs:
           fi
           aws_regions=''
           if [ "${{ github.event.inputs.aws-region }}" == 'all' ]; then
-            aws_regions='["ca-west-1", "eu-central-1", "eu-central-2", "eu-north-1", "eu-south-1", "eu-south-2", "eu-west-1", "eu-west-2", "eu-west-3", "us-east-1", "us-east-2", "us-west-2"]'
+            aws_regions='["ca-central-1", "ca-west-1", "eu-central-1", "eu-central-2", "eu-north-1", "eu-south-1", "eu-south-2", "eu-west-1", "eu-west-2", "eu-west-3", "us-east-1", "us-east-2", "us-west-2"]'
           else
             aws_regions='["${{ github.event.inputs.aws-region }}"]'
           fi
@@ -186,3 +187,49 @@ jobs:
       distribution: ${{ github.event.inputs.distribution }}
       collector-version: ${{ needs.prepare-release-jobs.outputs.collector-version }}
     secrets: inherit
+
+  generate-layers-report:
+    needs: release-layer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+          cache: 'pip'
+          cache-dependency-path: 'scripts/generate-layers-report.py'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install boto3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ github.event.inputs.role-arn || secrets.OTEL_LAMBDA_LAYER_PUBLISH_ROLE_ARN || secrets.PROD_LAMBDA_ROLE_ARN }}
+          role-duration-seconds: 1200
+          aws-region: us-east-1 # Use a default region for generating the report
+          mask-aws-account-id: true
+
+      - name: Generate Layers Report
+        run: |
+          # Generate a distribution-specific report
+          python scripts/generate-layers-report.py \
+            --pattern "*-${{ inputs.distribution }}*" \
+            --output "LAYERS-${{ inputs.distribution }}.md"
+          
+          # Also generate a full report
+          python scripts/generate-layers-report.py \
+            --output "LAYERS-ALL.md"
+      
+      - name: Upload Layer Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-layers-report
+          path: |
+            LAYERS-*.md
+          retention-days: 90

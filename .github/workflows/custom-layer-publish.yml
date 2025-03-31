@@ -11,7 +11,6 @@ on:
         description: 'Layer name not including other parts like arch or version.'
         required: true
         type: string
-      # REMOVED component-version input
       architecture:
         description: '(optional) amd64 or arm64'
         required: false
