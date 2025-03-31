@@ -100,11 +100,16 @@ jobs:
         with:
           go-version: '~1.21.9'
 
-      - name: Build Layer using build-extension-layer.sh
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x' # Use a recent Python 3 version
+
+      - name: Build Layer using build_extension_layer.py
         run: |
           mkdir -p ./build
-          chmod +x ./scripts/build-extension-layer.sh
-          ./scripts/build-extension-layer.sh \
+          # Python script is already executable, no chmod needed
+          python3 ./scripts/build_extension_layer.py \
             --upstream-repo ${{ inputs.upstream-repo }} \
             --upstream-ref ${{ inputs.upstream-ref }} \
             --distribution ${{ inputs.distribution }} \
