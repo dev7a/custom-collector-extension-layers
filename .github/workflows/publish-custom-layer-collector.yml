@@ -167,7 +167,7 @@ jobs:
 
   release-layer:
     # This refers to the reusable workflow within THIS repository
-    uses: ./.github/workflows/custom-layer-publish.yml
+    uses: ./.github/workflows/reusable/custom-layer-publish.yml
     needs: prepare-release-jobs
     strategy:
       matrix: ${{ fromJSON(needs.prepare-release-jobs.outputs.release_jobs) }}
@@ -205,7 +205,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ github.event.inputs.role-arn || secrets.OTEL_LAMBDA_LAYER_PUBLISH_ROLE_ARN || secrets.PROD_LAMBDA_ROLE_ARN }}
+          role-to-assume: ${{ secrets.OTEL_LAMBDA_LAYER_PUBLISH_ROLE_ARN }}
           role-duration-seconds: 1200
           aws-region: us-east-1 # Use a default region for generating the report
           mask-aws-account-id: true

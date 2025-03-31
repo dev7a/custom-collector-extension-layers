@@ -1,0 +1,117 @@
+name: Custom Publish Lambda Layer # Renamed for clarity
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: 'This should correspond to a actions/upload-artifact name earlier in the build. The file name and the name of the artifact containing it must be equal.'
+        required: true
+        type: string
+      layer-name:
+        description: 'Layer name not including other parts like arch or version.'
+        required: true
+        type: string
+      architecture:
+        description: '(optional) amd64 or arm64'
+        required: false
+        type: string
+      runtimes:
+        description: '(optional) a space delimited list of compatible runtimes (from https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html)'
+        required: false
+        type: string
+      release-group:
+        description: 'Release to dev or prod? "prod" yields empty value. (Default: dev)'
+        required: true
+        default: dev
+        type: string
+      aws_region:
+        description: 'Publish to which AWS region?'
+        required: true
+        type: string
+      layer-version:
+        description: '(optional) Layer version to be used in the layer name. If no input is given, its value is tried to be extracted from the `GITHUB_REF_NAME` variable'
+        required: false
+        type: string
+      distribution:
+        description: 'Distribution name to be included in the layer name'
+        required: false
+        type: string
+        default: 'default'
+      collector-version: 
+        description: 'Version of the OpenTelemetry collector (read from VERSION file)'
+        required: false
+        type: string
+    outputs:
+      layer_arn:
+        description: 'ARN of the published or reused layer'
+        value: ${{ jobs.publish_layer.outputs.layer_arn }}
+      skip_publish:
+        description: 'Whether layer publication was skipped (true/false)'
+        value: ${{ jobs.publish_layer.outputs.skip_publish }}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish_layer:
+    runs-on: ubuntu-latest
+    outputs:
+      layer_arn: ${{ steps.publish-layer.outputs.layer_arn }}
+      skip_publish: ${{ steps.publish-layer.outputs.skip_publish }}
+
+    steps:
+      - name: Checkout repository for scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Download built layer
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.OTEL_LAMBDA_LAYER_PUBLISH_ROLE_ARN }}
+          role-duration-seconds: 1200
+          aws-region: ${{ inputs.aws_region }}
+          mask-aws-account-id: true # Keep masking enabled
+
+      - name: Publish Lambda Layer
+        id: publish-layer
+        run: |
+          # Build arguments string for the Python script
+          ARGS=""
+          ARGS="$ARGS --layer-name '${{ inputs.layer-name }}'"
+          ARGS="$ARGS --artifact-name '${{ inputs.artifact-name }}'"
+          ARGS="$ARGS --region '${{ inputs.aws_region }}'"
+          
+          if [[ -n "${{ inputs.architecture }}" ]]; then
+            ARGS="$ARGS --architecture '${{ inputs.architecture }}'"
+          fi
+          
+          if [[ -n "${{ inputs.runtimes }}" ]]; then
+            ARGS="$ARGS --runtimes '${{ inputs.runtimes }}'"
+          fi
+          
+          if [[ -n "${{ inputs.release-group }}" ]]; then
+            ARGS="$ARGS --release-group '${{ inputs.release-group }}'"
+          fi
+          
+          if [[ -n "${{ inputs.layer-version }}" ]]; then
+            ARGS="$ARGS --layer-version '${{ inputs.layer-version }}'"
+          fi
+          
+          if [[ -n "${{ inputs.distribution }}" ]]; then
+            ARGS="$ARGS --distribution '${{ inputs.distribution }}'"
+          fi
+          
+          if [[ -n "${{ inputs.collector-version }}" ]]; then
+            ARGS="$ARGS --collector-version '${{ inputs.collector-version }}'"
+          fi
+          
+          # Run the Python script
+          python3 scripts/lambda_layer_publisher.py $ARGS
