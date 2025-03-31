@@ -124,7 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_jobs: ${{ steps.prepare-release-jobs.outputs.release_jobs }}
-      collector-version: ${{ steps.collector-version.outputs.version }}
+      collector_version: ${{ steps.collector-version.outputs.version }}
     steps:
       # Checkout upstream repo to get version information
       - name: Checkout Upstream Repo
@@ -180,7 +180,7 @@ jobs:
       release-group: prod # Or make configurable
       aws_region: ${{ matrix.aws_region }}
       distribution: ${{ github.event.inputs.distribution }}
-      collector-version: ${{ needs.prepare-release-jobs.outputs.collector-version }}
+      collector-version: ${{ needs.prepare-release-jobs.outputs.collector_version }}
     secrets: inherit
 
   generate-layers-report:
@@ -231,7 +231,7 @@ jobs:
 
   # New Job for creating GitHub Release
   create-github-release:
-    needs: [release-layer, generate-layers-report] # Run after publishing and report generation
+    needs: [prepare-release-jobs, release-layer, generate-layers-report] # Run after publishing and report generation
     runs-on: ubuntu-latest
     steps:
       - name: Dump Needs Context
@@ -265,7 +265,7 @@ jobs:
         id: release_info
         env:
           # Map the needs output directly to an environment variable for this step
-          INPUT_COLLECTOR_VERSION: ${{ needs.prepare-release-jobs.outputs.collector-version }}
+          INPUT_COLLECTOR_VERSION: ${{ needs.prepare-release-jobs.outputs.collector_version }}
         run: |
           DISTRIBUTION="${{ github.event.inputs.distribution }}"
           # Read collector version from the environment variable
