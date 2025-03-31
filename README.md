@@ -29,6 +29,49 @@ This repository can build several predefined distributions:
 - `full`: Complete distribution with all available components
 - `custom`: Build with custom-specified build tags
 
+## Understanding Distributions
+
+When running the "Publish Custom Collector Lambda layer" workflow, the **Distribution** option determines which set of OpenTelemetry Collector components are included in the layer. Here's a breakdown of what each option provides:
+
+| Distribution          | Included Components / Build Tags                                                                                                | Description                                                                 |
+| :-------------------- | :------------------------------------------------------------------------------------------------------------------------------ | :-------------------------------------------------------------------------- |
+| `default`             | *(Upstream Default)*                                                                                                            | The standard set of components provided by the upstream OpenTelemetry Lambda. |
+| `minimal`             | `lambdacomponents.custom`, OTLP Receiver, Batch Processor                                                                       | A lightweight layer with only essential OTLP receiving and batching.        |
+| `clickhouse`          | `lambdacomponents.custom`, OTLP Receiver, Batch Processor, **ClickHouse Exporter**                                              | Includes the custom ClickHouse exporter for sending data to ClickHouse.     |
+| `clickhouse-otlphttp` | `lambdacomponents.custom`, OTLP Receiver, Batch Processor, **ClickHouse Exporter**, **OTLP/HTTP Exporter**                       | Includes both the ClickHouse and standard OTLP/HTTP exporters.              |
+| `full`                | `lambdacomponents.custom`, `lambdacomponents.all` (All custom *and* upstream components)                                        | A comprehensive layer including all available upstream and custom components. |
+| `custom`              | `lambdacomponents.custom` + tags specified in **Build Tags** input                                                              | Allows specifying a custom set of components using Go build tags directly.    |
+
+**Note:** All distributions except `default` automatically include the `lambdacomponents.custom` build tag, which is necessary for enabling the custom component overlay mechanism. The `custom` distribution allows fine-grained control by specifying exact build tags. Refer to the Go files in the `components/` directory and the upstream repository for details on available component tags.
+
+## Upstream Default Components
+
+The `default` distribution uses the standard component set provided by the upstream OpenTelemetry Lambda repository when no custom build tags are specified. This includes:
+
+*   **Receivers:**
+    *   `otlp`: OTLP gRPC/HTTP receiver.
+    *   `telemetryapi`: AWS Lambda Telemetry API receiver.
+*   **Exporters:**
+    *   `debug`: Logs telemetry data to the console.
+    *   `otlp`: OTLP gRPC exporter.
+    *   `otlphttp`: OTLP HTTP exporter.
+    *   `prometheusremotewrite`: Prometheus Remote Write exporter.
+*   **Processors:**
+    *   `attributes`: Modifies attributes based on rules.
+    *   `filter`: Filters telemetry data based on criteria.
+    *   `memory_limiter`: Prevents excessive memory usage.
+    *   `probabilistic_sampler`: Samples traces probabilistically.
+    *   `resource`: Modifies resource attributes.
+    *   `span`: Modifies span attributes.
+    *   `coldstart`: Detects Lambda cold starts (Lambda specific).
+    *   `decouple`: Decouples pipeline processing for better Lambda performance (Lambda specific).
+    *   `batch`: Batches telemetry data before export.
+*   **Extensions:**
+    *   `sigv4auth`: Provides AWS SigV4 authentication for exporters.
+    *   `basicauth`: Provides Basic HTTP authentication for exporters/receivers.
+
+For detailed configuration options of these components, please refer to the upstream [OpenTelemetry Lambda](https://github.com/open-telemetry/opentelemetry-lambda) and [OpenTelemetry Collector Contrib](https://github.com/open-telemetry/opentelemetry-collector-contrib) documentation.
+
 ## Usage
 
 ### Publishing a Custom Layer
