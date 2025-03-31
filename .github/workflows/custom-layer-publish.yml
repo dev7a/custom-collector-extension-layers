@@ -82,39 +82,16 @@ jobs:
 
       - name: Publish Lambda Layer
         id: publish-layer
+        env: # Pass inputs as environment variables
+          PY_LAYER_NAME: ${{ inputs.layer-name }}
+          PY_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+          PY_REGION: ${{ inputs.aws_region }}
+          PY_ARCHITECTURE: ${{ inputs.architecture }}
+          PY_RUNTIMES: ${{ inputs.runtimes }}
+          PY_RELEASE_GROUP: ${{ inputs.release-group }}
+          PY_LAYER_VERSION: ${{ inputs.layer-version }}
+          PY_DISTRIBUTION: ${{ inputs.distribution }}
+          PY_COLLECTOR_VERSION: ${{ inputs.collector-version }}
         run: |
-          # Build arguments string for the Python script
-          # Using eval requires careful quoting, especially for values with spaces
-          CMD="python3 scripts/lambda_layer_publisher.py"
-          CMD="$CMD --layer-name '${{ inputs.layer-name }}'"
-          CMD="$CMD --artifact-name '${{ inputs.artifact-name }}'"
-          CMD="$CMD --region '${{ inputs.aws_region }}'"
-          
-          if [[ -n "${{ inputs.architecture }}" ]]; then
-            CMD="$CMD --architecture '${{ inputs.architecture }}'"
-          fi
-          
-          if [[ -n "${{ inputs.runtimes }}" ]]; then
-            # Quote the potentially space-separated runtimes value
-            CMD="$CMD --runtimes \"${{ inputs.runtimes }}\"" 
-          fi
-          
-          if [[ -n "${{ inputs.release-group }}" ]]; then
-            CMD="$CMD --release-group '${{ inputs.release-group }}'"
-          fi
-          
-          if [[ -n "${{ inputs.layer-version }}" ]]; then
-            CMD="$CMD --layer-version '${{ inputs.layer-version }}'"
-          fi
-          
-          if [[ -n "${{ inputs.distribution }}" ]]; then
-            CMD="$CMD --distribution '${{ inputs.distribution }}'"
-          fi
-          
-          if [[ -n "${{ inputs.collector-version }}" ]]; then
-            CMD="$CMD --collector-version '${{ inputs.collector-version }}'"
-          fi
-          
-          # Use eval to correctly parse the quoted command string
-          echo "Executing command: $CMD"
-          eval $CMD 
+          # Call the script directly - it will read args from environment variables
+          python3 scripts/lambda_layer_publisher.py 

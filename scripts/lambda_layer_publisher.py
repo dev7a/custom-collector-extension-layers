@@ -407,16 +407,38 @@ def set_github_output(name: str, value: str) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description='AWS Lambda Layer Publisher')
-    # Add argument descriptions matching the design doc / original script
-    parser.add_argument('--layer-name', required=True, help='Base layer name (e.g., opentelemetry-collector)')
-    parser.add_argument('--artifact-name', required=True, help='Path to the layer zip artifact file')
-    parser.add_argument('--region', required=True, help='AWS region to publish the layer')
-    parser.add_argument('--architecture', help='Layer architecture (amd64 or arm64)')
-    parser.add_argument('--runtimes', help='Space-delimited list of compatible runtimes')
-    parser.add_argument('--release-group', default='prod', help='Release group (dev or prod, default: prod)')
-    parser.add_argument('--layer-version', help='Specific version override for layer naming')
-    parser.add_argument('--distribution', default='default', help='Distribution name (default: default)')
-    parser.add_argument('--collector-version', help='Version of the OpenTelemetry collector included')
+    # Priority: Argument > Environment Variable > Default
+    # Required args must come from one of the first two.
+    parser.add_argument('--layer-name', 
+                        default=os.environ.get('PY_LAYER_NAME'), 
+                        required=not os.environ.get('PY_LAYER_NAME'),
+                        help='Base layer name (e.g., opentelemetry-collector). Env: PY_LAYER_NAME')
+    parser.add_argument('--artifact-name', 
+                        default=os.environ.get('PY_ARTIFACT_NAME'), 
+                        required=not os.environ.get('PY_ARTIFACT_NAME'),
+                        help='Path to the layer zip artifact file. Env: PY_ARTIFACT_NAME')
+    parser.add_argument('--region', 
+                        default=os.environ.get('PY_REGION'), 
+                        required=not os.environ.get('PY_REGION'),
+                        help='AWS region to publish the layer. Env: PY_REGION')
+    parser.add_argument('--architecture', 
+                        default=os.environ.get('PY_ARCHITECTURE'), 
+                        help='Layer architecture (amd64 or arm64). Env: PY_ARCHITECTURE')
+    parser.add_argument('--runtimes', 
+                        default=os.environ.get('PY_RUNTIMES'), 
+                        help='Space-delimited list of compatible runtimes. Env: PY_RUNTIMES')
+    parser.add_argument('--release-group', 
+                        default=os.environ.get('PY_RELEASE_GROUP', 'prod'), 
+                        help='Release group (dev or prod, default: prod). Env: PY_RELEASE_GROUP')
+    parser.add_argument('--layer-version', 
+                        default=os.environ.get('PY_LAYER_VERSION'), 
+                        help='Specific version override for layer naming. Env: PY_LAYER_VERSION')
+    parser.add_argument('--distribution', 
+                        default=os.environ.get('PY_DISTRIBUTION', 'default'), 
+                        help='Distribution name (default: default). Env: PY_DISTRIBUTION')
+    parser.add_argument('--collector-version', 
+                        default=os.environ.get('PY_COLLECTOR_VERSION'), 
+                        help='Version of the OpenTelemetry collector included. Env: PY_COLLECTOR_VERSION')
     
     args = parser.parse_args()
     
