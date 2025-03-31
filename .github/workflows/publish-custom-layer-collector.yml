@@ -263,10 +263,16 @@ jobs:
 
       - name: Determine Release Info
         id: release_info
+        env:
+          # Map the needs output directly to an environment variable for this step
+          INPUT_COLLECTOR_VERSION: ${{ needs.prepare-release-jobs.outputs.collector-version }}
         run: |
           DISTRIBUTION="${{ github.event.inputs.distribution }}"
-          COLLECTOR_VERSION="${{ needs.prepare-release-jobs.outputs.collector-version }}"
+          # Read collector version from the environment variable
+          COLLECTOR_VERSION="$INPUT_COLLECTOR_VERSION"
           CUSTOM_BUILD_TAGS_INPUT="${{ github.event.inputs.build-tags }}"
+
+          echo "Read Collector Version from env: $COLLECTOR_VERSION" # Add debug echo
 
           # --- Replicate get_build_tags logic from Python script --- 
           BUILD_TAGS=""
