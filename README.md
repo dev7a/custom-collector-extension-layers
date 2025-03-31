@@ -86,18 +86,41 @@ For detailed configuration options of these components, please refer to the upst
    - **Upstream Repo**: Repository to clone (default: `open-telemetry/opentelemetry-lambda`)
    - **Upstream Ref**: Git reference to use (branch, tag, commit SHA)
 
-### Adding New Custom Components
+### Adding New Custom Components and Distributions
 
-To add a new custom component:
+**Adding a New Custom Go Component:**
 
-1. Create the corresponding `.go` file in the `components/collector/lambdacomponents/{component-type}/` directory
-2. Add appropriate Go build tags at the top of the file:
-   ```go
-   //go:build lambdacomponents.custom && (lambdacomponents.all || lambdacomponents.{component-type}.all || lambdacomponents.{component-type}.{component-name})
-   ```
-3. Add documentation in the `docs/` directory
-4. Update this README.md to include the new component
-5. If needed, modify the workflow to add a new distribution option for your component
+If you are adding entirely new functionality (like a new exporter or processor):
+
+1.  Create the corresponding `.go` file in the appropriate `components/collector/lambdacomponents/{component-type}/` directory (e.g., `exporter`, `processor`).
+2.  Add the standard Go build tags at the top of the file to control its inclusion:
+    ```go
+    //go:build lambdacomponents.custom && (lambdacomponents.all || lambdacomponents.{component-type}.all || lambdacomponents.{component-type}.{component-name})
+    ```
+    Replace `{component-type}` and `{component-name}` accordingly (e.g., `lambdacomponents.exporter.myexporter`).
+3.  Add documentation for your new component in the `docs/` directory.
+4.  Update the "Custom Components" section of this README.md.
+
+**Defining a New Distribution Preset:**
+
+If you want to create a new named option in the "Distribution" dropdown that combines existing upstream or custom components using specific build tags:
+
+1.  Edit the `config/distributions.yaml` file.
+2.  Add a new top-level key with your desired distribution name (e.g., `my-custom-dist`).
+3.  Define the `description` and the list of `buildtags` required for this distribution. Remember to include `lambdacomponents.custom` if you are including any custom components or deviating from the upstream default.
+    ```yaml
+    my-custom-dist:
+      description: "A custom set including component X and Y"
+      buildtags:
+        - lambdacomponents.custom
+        - lambdacomponents.receiver.otlp
+        - lambdacomponents.processor.batch
+        - lambdacomponents.exporter.myexporter # If you added this custom component
+    ```
+4.  **(Optional but Recommended for UI)** Manually edit `.github/workflows/publish-custom-layer-collector.yml` and add your new distribution name (`my-custom-dist`) to the `options` list under `on.workflow_dispatch.inputs.distribution`. This makes it selectable in the GitHub Actions UI dropdown.
+5.  Update the "Available Distributions" list and the "Understanding Distributions" table in this README.md to include your new distribution preset.
+
+See `docs/distribution-management.md` for more details on the refactored distribution management approach.
 
 ## Implementation Details
 

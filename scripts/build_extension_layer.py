@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+import yaml  # Added for YAML parsing
 
 # Default values
 DEFAULT_UPSTREAM_REPO = "open-telemetry/opentelemetry-lambda"
@@ -70,11 +71,48 @@ def get_build_tags(distribution: str, custom_tags_str: str) -> str:
             # Default for custom if no tags are provided
             return "lambdacomponents.custom"
     
-    return tags_map.get(distribution, "")
+    # Load distribution data from YAML file (now in config/ relative to repo root)
+    repo_root = Path(__file__).parent.parent.resolve() 
+    yaml_path = repo_root / "config" / "distributions.yaml"
+    try:
+        with open(yaml_path, 'r') as f:
+            distributions_data = yaml.safe_load(f)
+        if not distributions_data:
+            print(f"Error: {yaml_path} is empty or invalid.", file=sys.stderr)
+            sys.exit(1)
+    except FileNotFoundError:
+        print(f"Error: {yaml_path} not found.", file=sys.stderr)
+        sys.exit(1)
+    except yaml.YAMLError as e:
+        print(f"Error parsing {yaml_path}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if distribution == "custom":
+        if custom_tags_str:
+            tags = custom_tags_str
+            # Ensure lambdacomponents.custom is present
+            if "lambdacomponents.custom" not in tags:
+                tags = f"lambdacomponents.custom,{tags}"
+            return tags
+        else:
+            # Default for custom if no tags are provided
+            return "lambdacomponents.custom"
+    
+    # Look up buildtags list from the loaded YAML data
+    dist_info = distributions_data.get(distribution)
+    if dist_info is None:
+        print(f"Error: Distribution '{distribution}' not found in {yaml_path}", file=sys.stderr)
+        # Fallback or exit? Let's exit for now to enforce config correctness.
+        sys.exit(1)
+        # return "" # Alternative: fallback to default?
+
+    buildtags_list = dist_info.get("buildtags", []) # Get the list, default to empty list
+    return ",".join(buildtags_list) # Join the list into a comma-separated string
 
 def add_dependencies(collector_dir: Path, build_tags: str):
     """Add Go dependencies based on build tags."""
-    if "lambdacomponents.exporter.clickhouse" in build_tags:
+    # Add dependency if the specific component tag OR the 'all' tag is present
+    if "lambdacomponents.exporter.clickhouse" in build_tags or "lambdacomponents.all" in build_tags:
         print("Adding ClickHouse exporter dependency...")
         try:
             # Try to detect OpenTelemetry version from go.mod
@@ -105,13 +143,28 @@ def add_dependencies(collector_dir: Path, build_tags: str):
             sys.exit(1)
 
 def main():
+    # --- Load distributions from YAML for argument choices ---
+    repo_root_for_args = Path(__file__).parent.parent.resolve()
+    yaml_path_for_args = repo_root_for_args / "config" / "distributions.yaml"
+    distribution_choices = ['custom'] # 'custom' is always an option
+    try:
+        with open(yaml_path_for_args, 'r') as f:
+            distributions_data_for_args = yaml.safe_load(f)
+            if distributions_data_for_args:
+                distribution_choices.extend(distributions_data_for_args.keys())
+            else:
+                 print(f"Warning: {yaml_path_for_args} is empty or invalid, only 'custom' distribution available.", file=sys.stderr)
+    except Exception as e:
+         print(f"Warning: Could not load {yaml_path_for_args} to determine distribution choices ({e}), only 'custom' available.", file=sys.stderr)
+    # --- End loading distributions ---
+
     parser = argparse.ArgumentParser(description='Build Custom OpenTelemetry Collector Lambda Layer.')
     parser.add_argument('-r', '--upstream-repo', default=DEFAULT_UPSTREAM_REPO,
                         help=f'Upstream repository (default: {DEFAULT_UPSTREAM_REPO})')
     parser.add_argument('-b', '--upstream-ref', default=DEFAULT_UPSTREAM_REF,
                         help=f'Upstream Git reference (branch, tag, SHA) (default: {DEFAULT_UPSTREAM_REF})')
     parser.add_argument('-d', '--distribution', default=DEFAULT_DISTRIBUTION,
-                        choices=['default', 'minimal', 'clickhouse', 'clickhouse-otlphttp', 'full', 'custom'],
+                        choices=sorted(list(set(distribution_choices))), # Use loaded choices, ensure unique and sorted
                         help=f'Distribution name (default: {DEFAULT_DISTRIBUTION})')
     parser.add_argument('-a', '--arch', default=DEFAULT_ARCHITECTURE,
                         choices=['amd64', 'arm64'],
@@ -243,4 +296,4 @@ def main():
 if __name__ == "__main__":
     # Need to import re for add_dependencies
     import re 
-    main() 
+    main()

@@ -248,10 +248,10 @@ jobs:
           cache: 'pip'
           cache-dependency-path: 'scripts/generate_release_notes.py' # Cache based on script
 
-      - name: Install dependencies
+      - name: Install dependencies (including PyYAML)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install boto3
+          python -m pip install boto3 PyYAML # Added PyYAML
 
       - name: Configure AWS credentials (for release notes script)
         uses: aws-actions/configure-aws-credentials@v4
@@ -261,65 +261,16 @@ jobs:
           aws-region: us-east-1 # Use a default region for querying DynamoDB
           mask-aws-account-id: true
 
-      - name: Determine Release Info
+      - name: Determine Release Info using script
         id: release_info
         env:
-          # Map the needs output directly to an environment variable for this step
+          # Pass inputs to the script via environment variables
+          DISTRIBUTION: ${{ github.event.inputs.distribution }}
+          CUSTOM_BUILD_TAGS_INPUT: ${{ github.event.inputs.build-tags }}
           INPUT_COLLECTOR_VERSION: ${{ needs.prepare-release-jobs.outputs.collector_version }}
+          DIST_YAML_PATH: config/distributions.yaml # Updated default path
         run: |
-          DISTRIBUTION="${{ github.event.inputs.distribution }}"
-          # Read collector version from the environment variable
-          COLLECTOR_VERSION="$INPUT_COLLECTOR_VERSION"
-          CUSTOM_BUILD_TAGS_INPUT="${{ github.event.inputs.build-tags }}"
-
-          echo "Read Collector Version from env: $COLLECTOR_VERSION" # Add debug echo
-
-          # --- Replicate get_build_tags logic from Python script --- 
-          BUILD_TAGS=""
-          case "$DISTRIBUTION" in
-            minimal)
-              BUILD_TAGS="lambdacomponents.custom,lambdacomponents.receiver.otlp,lambdacomponents.processor.batch"
-              ;;
-            clickhouse)
-              BUILD_TAGS="lambdacomponents.custom,lambdacomponents.receiver.otlp,lambdacomponents.processor.batch,lambdacomponents.exporter.clickhouse"
-              ;;
-            clickhouse-otlphttp)
-              BUILD_TAGS="lambdacomponents.custom,lambdacomponents.receiver.otlp,lambdacomponents.processor.batch,lambdacomponents.exporter.clickhouse,lambdacomponents.exporter.otlphttp"
-              ;;
-            full)
-              BUILD_TAGS="lambdacomponents.custom,lambdacomponents.all"
-              ;;
-            custom)
-              if [[ -n "$CUSTOM_BUILD_TAGS_INPUT" ]]; then
-                  BUILD_TAGS="$CUSTOM_BUILD_TAGS_INPUT"
-                  # Ensure lambdacomponents.custom is present
-                  if [[ "$BUILD_TAGS" != *"lambdacomponents.custom"* ]]; then
-                      BUILD_TAGS="lambdacomponents.custom,$BUILD_TAGS"
-                  fi
-              else
-                  BUILD_TAGS="lambdacomponents.custom"
-              fi
-              ;;
-            default | *)
-              BUILD_TAGS="" # Default build with no special tags
-              ;;
-          esac
-          # --- End of get_build_tags logic --- 
-
-          # Clean collector version for tag/name (remove 'v' prefix)
-          VERSION_TAG_PART=$(echo "$COLLECTOR_VERSION" | sed 's/^v//')
-          TAG="${DISTRIBUTION}-v${VERSION_TAG_PART}"
-          TITLE="Release ${DISTRIBUTION} v${VERSION_TAG_PART}"
-          
-          echo "Derived Build Tags: $BUILD_TAGS"
-          echo "Release Tag: $TAG"
-          echo "Release Title: $TITLE"
-          
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "title=$TITLE" >> $GITHUB_OUTPUT
-          echo "build_tags=$BUILD_TAGS" >> $GITHUB_OUTPUT
-          echo "collector_version=$COLLECTOR_VERSION" >> $GITHUB_OUTPUT
-          echo "distribution=$DISTRIBUTION" >> $GITHUB_OUTPUT
+          python scripts/get_release_info.py
 
       - name: Generate Release Body
         id: generate_notes
