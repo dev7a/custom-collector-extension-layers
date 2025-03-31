@@ -84,34 +84,37 @@ jobs:
         id: publish-layer
         run: |
           # Build arguments string for the Python script
-          ARGS=""
-          ARGS="$ARGS --layer-name '${{ inputs.layer-name }}'"
-          ARGS="$ARGS --artifact-name '${{ inputs.artifact-name }}'"
-          ARGS="$ARGS --region '${{ inputs.aws_region }}'"
+          # Using eval requires careful quoting, especially for values with spaces
+          CMD="python3 scripts/lambda_layer_publisher.py"
+          CMD="$CMD --layer-name '${{ inputs.layer-name }}'"
+          CMD="$CMD --artifact-name '${{ inputs.artifact-name }}'"
+          CMD="$CMD --region '${{ inputs.aws_region }}'"
           
           if [[ -n "${{ inputs.architecture }}" ]]; then
-            ARGS="$ARGS --architecture '${{ inputs.architecture }}'"
+            CMD="$CMD --architecture '${{ inputs.architecture }}'"
           fi
           
           if [[ -n "${{ inputs.runtimes }}" ]]; then
-            ARGS="$ARGS --runtimes '${{ inputs.runtimes }}'"
+            # Quote the potentially space-separated runtimes value
+            CMD="$CMD --runtimes \"${{ inputs.runtimes }}\"" 
           fi
           
           if [[ -n "${{ inputs.release-group }}" ]]; then
-            ARGS="$ARGS --release-group '${{ inputs.release-group }}'"
+            CMD="$CMD --release-group '${{ inputs.release-group }}'"
           fi
           
           if [[ -n "${{ inputs.layer-version }}" ]]; then
-            ARGS="$ARGS --layer-version '${{ inputs.layer-version }}'"
+            CMD="$CMD --layer-version '${{ inputs.layer-version }}'"
           fi
           
           if [[ -n "${{ inputs.distribution }}" ]]; then
-            ARGS="$ARGS --distribution '${{ inputs.distribution }}'"
+            CMD="$CMD --distribution '${{ inputs.distribution }}'"
           fi
           
           if [[ -n "${{ inputs.collector-version }}" ]]; then
-            ARGS="$ARGS --collector-version '${{ inputs.collector-version }}'"
+            CMD="$CMD --collector-version '${{ inputs.collector-version }}'"
           fi
           
-          # Run the Python script
-          python3 scripts/lambda_layer_publisher.py $ARGS 
+          # Use eval to correctly parse the quoted command string
+          echo "Executing command: $CMD"
+          eval $CMD 
