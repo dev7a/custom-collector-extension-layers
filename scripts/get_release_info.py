@@ -9,11 +9,12 @@ Reads inputs from environment variables:
 - DISTRIBUTION: The selected distribution name.
 - CUSTOM_BUILD_TAGS_INPUT: User-provided custom build tags.
 - INPUT_COLLECTOR_VERSION: The collector version string (e.g., "v0.119.0").
+- RELEASE_GROUP: The release group (e.g., "prod", "beta").
 - DIST_YAML_PATH: Path to the distributions YAML file (defaults to 'config/distributions.yaml').
 
 Sets GitHub Actions outputs:
-- tag: The calculated release tag (e.g., "minimal-v0.119.0").
-- title: The calculated release title (e.g., "Release minimal v0.119.0").
+- tag: The calculated release tag (e.g., "minimal-v0.119.0-prod").
+- title: The calculated release title (e.g., "Release minimal v0.119.0 (prod)").
 - build_tags: The calculated, comma-separated build tags string.
 - collector_version: The input collector version (passed through).
 - distribution: The input distribution name (passed through).
@@ -32,6 +33,7 @@ def set_output(name, value):
 distribution = os.environ.get('DISTRIBUTION', 'default')
 custom_tags_input = os.environ.get('CUSTOM_BUILD_TAGS_INPUT', '')
 collector_version = os.environ.get('INPUT_COLLECTOR_VERSION', 'v0.0.0') # Default if missing
+release_group = os.environ.get('RELEASE_GROUP', 'prod') # Get release group
 # Default path is now config/distributions.yaml relative to repo root
 repo_root = Path(__file__).parent.parent.resolve()
 default_yaml_path = repo_root / "config" / "distributions.yaml"
@@ -87,8 +89,9 @@ print(f"Determined Build Tags: {build_tags}")
 # --- Determine Release Tag and Title ---
 # Clean collector version for tag/name (remove 'v' prefix)
 version_tag_part = collector_version.lstrip('v')
-release_tag = f"{distribution}-v{version_tag_part}"
-release_title = f"Release {distribution} v{version_tag_part}"
+# Always include release group in tag and title
+release_tag = f"{distribution}-v{version_tag_part}-{release_group}"
+release_title = f"Release {distribution} v{version_tag_part} ({release_group})"
 
 print(f"Release Tag: {release_tag}")
 print(f"Release Title: {release_title}")
@@ -99,5 +102,6 @@ set_output('title', release_title)
 set_output('build_tags', build_tags)
 set_output('collector_version', collector_version) # Pass through
 set_output('distribution', distribution) # Pass through
+set_output('release_group', release_group) # Output release group
 
 print("Successfully set outputs.")

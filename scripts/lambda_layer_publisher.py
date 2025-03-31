@@ -149,9 +149,8 @@ def construct_layer_name(
         layer_name = f"{layer_name}-{layer_version_cleaned_for_naming}"
         layer_version_str_for_naming = layer_version_cleaned_for_naming # Store the cleaned version used in name
     
-    # Add release group if not prod
-    if release_group != "prod":
-        layer_name = f"{layer_name}-{release_group}"
+    # Always add release group (even if 'prod')
+    layer_name = f"{layer_name}-{release_group}"
     
     # Final cleanup for layer name
     layer_name_cleaned = re.sub(r'[^a-zA-Z0-9_-]', '_', layer_name)
@@ -208,16 +207,27 @@ def publish_layer(
     layer_name: str, 
     layer_file: str, 
     md5_hash: str, 
-    region: str, 
+    region: str,
     arch: str,
-    runtimes: Optional[str] = None
+    runtimes: Optional[str] = None,
+    build_tags: Optional[str] = None # Added build_tags parameter
 ) -> Optional[str]:
     """Publish a new Lambda layer version."""
     print(f"Publishing layer with name: {layer_name}")
+    
+    # Construct description
+    description = f"Build Tags: {build_tags if build_tags else 'N/A'} | MD5: {md5_hash}"
+    # Truncate description if it exceeds AWS limit (256 chars)
+    if len(description) > 256:
+        description = description[:253] + "..."
+        print(f"Warning: Truncated layer description due to length limit.", file=sys.stderr)
+        
+    print(f"Layer Description: {description}")
+
     runtime_param = f"--compatible-runtimes {runtimes}" if runtimes else ""
     cmd = f"aws lambda publish-layer-version " \
           f"--layer-name {layer_name} " \
-          f"--description \"MD5: {md5_hash}\" " \
+          f"--description \"{description}\" " \
           f"--license-info \"Apache 2.0\" " \
           f"--compatible-architectures {arch} " \
           f"{runtime_param} " \
@@ -512,13 +522,16 @@ def main():
     # Step 4: Publish layer if needed
     if not skip_publish:
         print("Publishing new layer version...")
+        # Read build tags from environment variable
+        build_tags_env = os.environ.get('PY_BUILD_TAGS', '') 
         layer_arn = publish_layer(
-            layer_name, 
-            args.artifact_name, 
-            md5_hash, 
-            args.region, 
+            layer_name,
+            args.artifact_name,
+            md5_hash,
+            args.region,
             arch_str,
-            args.runtimes
+            args.runtimes,
+            build_tags=build_tags_env # Pass build tags to publish_layer
         )
         if layer_arn:
             # Step 5: Make newly published layer public
@@ -539,7 +552,8 @@ def main():
                     'collector_version_input': args.collector_version,
                     'md5_hash': md5_hash,
                     'publish_timestamp': datetime.now(timezone.utc).isoformat(),
-                    'compatible_runtimes': set(args.runtimes.split()) if args.runtimes else None
+                    # Store as a list instead of a set for DynamoDB List (L) type
+                    'compatible_runtimes': args.runtimes.split() if args.runtimes else None 
                 }
                 dynamo_write_attempted = True
                 dynamo_success = write_metadata_to_dynamodb(metadata)
@@ -588,4 +602,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()

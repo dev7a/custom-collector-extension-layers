@@ -37,10 +37,15 @@ on:
         required: false
         type: string
         default: 'default'
-      collector-version: 
+      collector-version:
         description: 'Version of the OpenTelemetry collector (read from VERSION file)'
         required: false
         type: string
+      build-tags:
+        description: 'Comma-separated build tags used for the build'
+        required: false # Make optional in case it's not passed for some reason
+        type: string
+        default: ''
     outputs:
       layer_arn:
         description: 'ARN of the published or reused layer'
@@ -92,6 +97,7 @@ jobs:
           PY_LAYER_VERSION: ${{ inputs.layer-version }}
           PY_DISTRIBUTION: ${{ inputs.distribution }}
           PY_COLLECTOR_VERSION: ${{ inputs.collector-version }}
+          PY_BUILD_TAGS: ${{ inputs.build-tags }} # Pass build tags to script
         run: |
           # Call the script directly - it will read args from environment variables
-          python3 scripts/lambda_layer_publisher.py 
+          python3 scripts/lambda_layer_publisher.py
