@@ -1,6 +1,6 @@
-# Custom OpenTelemetry Lambda Layers
+# Custom OpenTelemetry Collector Lambda Layers
 
-This repository contains customizations for OpenTelemetry Lambda Layers, building upon the [OpenTelemetry Lambda](https://github.com/open-telemetry/opentelemetry-lambda) project. It uses an "overlay" approach to maintain custom components while staying in sync with upstream changes.
+This repository contains customizations for OpenTelemetry Collector Lambda Layers, building upon the [OpenTelemetry Lambda](https://github.com/open-telemetry/opentelemetry-lambda) project. It uses an "overlay" approach to maintain custom components while staying in sync with upstream changes.
 
 ## Overview
 
