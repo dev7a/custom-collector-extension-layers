@@ -1,4 +1,4 @@
-name: Custom Publish Lambda Layer # Renamed for clarity
+name: Reusable Workflow for Publishing Lambda Layers
 
 on:
   workflow_call:
