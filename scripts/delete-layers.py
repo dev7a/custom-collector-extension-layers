@@ -232,13 +232,9 @@ def confirm_deletion(layers: List[Dict], force: bool = False) -> bool:
 
 
 def main():
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(
-        description="Delete AWS Lambda layers matching a glob pattern across all regions.",
-        epilog="CAUTION: Layer deletion cannot be undone!"
-    )
-    parser.add_argument("pattern", 
-                      help="Glob pattern to match layer names (e.g., 'opentelemetry-collector-*-0_119_0')")
+    parser = argparse.ArgumentParser(description="Delete AWS Lambda layers matching a pattern across regions.")
+    parser.add_argument("--pattern", required=True, 
+                        help="Glob pattern to match layer names (e.g., 'custom-otel-collector-*-0_119_0')")
     parser.add_argument("--dry-run", action="store_true",
                       help="Perform a dry run without actually deleting layers")
     parser.add_argument("--force", action="store_true",

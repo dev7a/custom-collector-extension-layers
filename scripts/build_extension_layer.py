@@ -192,14 +192,17 @@ def main():
             
         run_command(["make", "package"], cwd=str(collector_dir), env=build_env)
 
-        # Step 6: Copy the built layer to the output directory
+        # Step 6: Rename and Copy the built layer
         build_output_dir = collector_dir / "build"
-        layer_filename = f"opentelemetry-collector-layer-{args.arch}.zip"
-        build_file = build_output_dir / layer_filename
+        original_filename = f"opentelemetry-collector-layer-{args.arch}.zip"
+        new_filename = f"custom-otel-collector-layer-{args.arch}.zip" # Our desired final name
+        
+        original_build_file = build_output_dir / original_filename
+        renamed_build_file = build_output_dir / new_filename # Path for renamed file within build dir
 
-        print(f"Checking for build output: {build_file}")
-        if not build_file.is_file():
-            print(f"Build file not found: {build_file}", file=sys.stderr)
+        print(f"Checking for build output: {original_build_file}")
+        if not original_build_file.is_file():
+            print(f"Build file not found: {original_build_file}", file=sys.stderr)
             print("Contents of build directory:", file=sys.stderr)
             try:
                 ls_output = run_command(["ls", "-la"], cwd=str(build_output_dir), check=False)
@@ -207,10 +210,19 @@ def main():
             except Exception as ls_err:
                 print(f"Could not list build directory contents: {ls_err}", file=sys.stderr)
             sys.exit(1)
+            
+        # Rename the file produced by make
+        print(f"Renaming {original_filename} to {new_filename} within build directory...")
+        try:
+            original_build_file.rename(renamed_build_file)
+        except OSError as e:
+            print(f"Error renaming file from {original_build_file} to {renamed_build_file}: {e}", file=sys.stderr)
+            sys.exit(1)
 
-        target_file = output_dir / layer_filename
-        print(f"Copying built layer from {build_file} to {target_file}")
-        shutil.copy(build_file, target_file)
+        # Copy the RENAMED file to the final output directory
+        target_file = output_dir / new_filename # Final destination uses the new name
+        print(f"Copying renamed layer from {renamed_build_file} to {target_file}")
+        shutil.copy(renamed_build_file, target_file)
 
         print(f"\nBuild complete! Layer available at: {target_file}")
 

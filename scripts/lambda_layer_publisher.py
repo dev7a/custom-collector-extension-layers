@@ -89,7 +89,7 @@ def calculate_md5(filename: str) -> str:
 def extract_layer_version_str(layer_name: str) -> str:
     """Extracts the version part from the layer name heuristically."""
     # This logic assumes the version is the last part after distribution/arch
-    # Example: opentelemetry-collector-amd64-clickhouse-0_119_0 -> 0_119_0
+    # Example: custom-otel-collector-amd64-clickhouse-0_119_0 -> 0_119_0
     parts = layer_name.split('-')
     # Find the likely start of the version (usually after arch or distribution)
     version_part = parts[-1] # Start with the last part
@@ -113,7 +113,7 @@ def construct_layer_name(
     Construct the full layer name according to AWS naming rules.
     
     Returns:
-        Tuple[str, str, str]: (layer_name_cleaned, arch_str, layer_version_str)
+        Tuple[str, str, str]: (layer_name_cleaned, arch_str, layer_version_str_for_naming)
     """
     layer_name = base_name
     layer_version_str_for_naming = ""
@@ -124,10 +124,10 @@ def construct_layer_name(
         layer_name = f"{layer_name}-{architecture}"
         arch_str = architecture.replace("amd64", "x86_64")
     
-    # Add distribution if specified and not default
-    if distribution and distribution != "default":
+    # Add distribution if specified
+    if distribution: 
         layer_name = f"{layer_name}-{distribution}"
-        print(f"Including distribution in layer name: {distribution}")
+        print(f"Including distribution ('{distribution}') in layer name")
     
     # Determine version string for naming
     layer_version = None
@@ -456,7 +456,7 @@ def main():
     parser.add_argument('--layer-name', 
                         default=os.environ.get('PY_LAYER_NAME'), 
                         required=not os.environ.get('PY_LAYER_NAME'),
-                        help='Base layer name (e.g., opentelemetry-collector). Env: PY_LAYER_NAME')
+                        help='Base layer name (e.g., custom-otel-collector). Env: PY_LAYER_NAME')
     parser.add_argument('--artifact-name', 
                         default=os.environ.get('PY_ARTIFACT_NAME'), 
                         required=not os.environ.get('PY_ARTIFACT_NAME'),
