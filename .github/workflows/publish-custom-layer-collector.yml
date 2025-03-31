@@ -326,7 +326,7 @@ jobs:
         run: |
           python scripts/generate_release_notes.py \
             --distribution "${{ steps.release_info.outputs.distribution }}" \
-            --collector-version "${{ steps.release_info.outputs.collector-version }}" \
+            --collector-version "${{ steps.release_info.outputs.collector_version }}" \
             --build-tags "${{ steps.release_info.outputs.build_tags }}" \
             > release_notes.md
           echo "Generated release_notes.md"
