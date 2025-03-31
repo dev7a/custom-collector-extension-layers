@@ -114,4 +114,4 @@ jobs:
           fi
           
           # Run the Python script
-          python3 scripts/lambda_layer_publisher.py $ARGS
+          python3 scripts/lambda_layer_publisher.py $ARGS 

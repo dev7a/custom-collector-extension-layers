@@ -167,7 +167,7 @@ jobs:
 
   release-layer:
     # This refers to the reusable workflow within THIS repository
-    uses: ./.github/workflows/reusable/custom-layer-publish.yml
+    uses: ./.github/workflows/custom-layer-publish.yml
     needs: prepare-release-jobs
     strategy:
       matrix: ${{ fromJSON(needs.prepare-release-jobs.outputs.release_jobs) }}
