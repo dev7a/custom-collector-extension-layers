@@ -332,15 +332,28 @@ jobs:
           path: ./release-assets/
         if: ${{ github.event.inputs.architecture == 'all' || github.event.inputs.architecture == 'arm64' }}
 
+      - name: List downloaded assets # DEBUG step
+        run: ls -la ./release-assets/
+
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Alternative if gh needs GH_TOKEN
         run: |
-          echo "Creating release ${{ needs.prepare-release-jobs.outputs.release_tag }}" # Use prepare job output
-          # Add explicit quotes around the title argument
+          # Check if any zip files exist in the release-assets directory
+          asset_count=$(find ./release-assets/ -maxdepth 1 -name '*.zip' | wc -l)
+          if [[ "$asset_count" -eq 0 ]]; then
+            echo "Error: No release assets (*.zip) found in ./release-assets/. Cannot create release."
+            exit 1
+          fi
+
+          echo "Creating release ${{ needs.prepare-release-jobs.outputs.release_tag }}"
+          echo "Attaching assets from ./release-assets/ ..."
+
+          # Use --notes-file and shell glob (should work if files exist)
           gh release create "${{ needs.prepare-release-jobs.outputs.release_tag }}" \
-            --title "${{ needs.prepare-release-jobs.outputs.release_title }}" \ 
+            --title "${{ needs.prepare-release-jobs.outputs.release_title }}" \
             --notes-file release_notes.md \
-            ./release-assets/*.zip # Upload all zip files in the assets dir
+            ./release-assets/*.zip
+
           echo "Release created successfully."
