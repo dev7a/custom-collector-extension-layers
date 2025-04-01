@@ -338,8 +338,9 @@ jobs:
           # GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Alternative if gh needs GH_TOKEN
         run: |
           echo "Creating release ${{ needs.prepare-release-jobs.outputs.release_tag }}" # Use prepare job output
-          gh release create ${{ needs.prepare-release-jobs.outputs.release_tag }} \
-            --title "${{ needs.prepare-release-jobs.outputs.release_title }}" \ # Use prepare job output
+          # Add explicit quotes around the title argument
+          gh release create "${{ needs.prepare-release-jobs.outputs.release_tag }}" \
+            --title "${{ needs.prepare-release-jobs.outputs.release_title }}" \ 
             --notes-file release_notes.md \
             ./release-assets/*.zip # Upload all zip files in the assets dir
           echo "Release created successfully."
