@@ -22,11 +22,10 @@ Currently, the repository includes the following custom components:
 
 This repository can build several predefined distributions:
 
-- `default`: Standard OpenTelemetry Collector
+- `default`: Standard OpenTelemetry Collector with receivers, exporters, processors, and extensions (but no connectors)
 - `minimal`: A minimal distribution with just OTLP receivers and batch processors
 - `clickhouse`: Distribution with ClickHouse exporter capabilities (inherits from `minimal`)
-- `clickhouse-otlphttp`: Distribution with ClickHouse and OTLP HTTP exporters (inherits from `clickhouse`)
-- `full`: Complete distribution with all available components
+- `full`: Complete distribution with all available components (superset of `default` that also includes connectors and custom components)
 
 Distributions can now inherit build tags from a `base` distribution, simplifying configuration (see `config/distributions.yaml`). Only predefined distributions from this file can be built.
 
@@ -36,11 +35,11 @@ When running the "Publish Custom Collector Lambda layer" workflow, the **Distrib
 
 | Distribution          | Included Components / Build Tags                                                                                                | Description                                                                 |
 | :-------------------- | :------------------------------------------------------------------------------------------------------------------------------ | :-------------------------------------------------------------------------- |
-| `default`             | *(Upstream Default)*                                                                                                            | The standard set of components provided by the upstream OpenTelemetry Lambda. |
+| `default`             | *(Upstream Default)* Standard receivers, processors, exporters, extensions                                                      | The standard set of components provided by the upstream OpenTelemetry Lambda. Does not include any connectors. |
 | `minimal`             | `lambdacomponents.custom`, OTLP Receiver, Batch Processor                                                                       | A lightweight layer with only essential OTLP receiving and batching.        |
 | `clickhouse`          | `lambdacomponents.custom`, OTLP Receiver, Batch Processor, **ClickHouse Exporter**                                              | Includes the custom ClickHouse exporter for sending data to ClickHouse.     |
 | `clickhouse-otlphttp` | `lambdacomponents.custom`, OTLP Receiver, Batch Processor, **ClickHouse Exporter**, **OTLP/HTTP Exporter**                       | Includes both the ClickHouse and standard OTLP/HTTP exporters.              |
-| `full`                | `lambdacomponents.custom`, `lambdacomponents.all` (All custom *and* upstream components)                                        | A comprehensive layer including all available upstream and custom components. |
+| `full`                | `lambdacomponents.custom`, `lambdacomponents.all` (All custom *and* upstream components)                                        | A comprehensive layer including all available upstream and custom components. Effectively a superset of `default` that also includes connectors like `spanmetrics`. |
 
 **Note:** All distributions except `default` automatically include the `lambdacomponents.custom` build tag, which is necessary for enabling the custom component overlay mechanism. Distributions can also define a `base` distribution in `config/distributions.yaml` to inherit build tags from; the final tag set is the unique combination of the base tags and the distribution's specific tags. Refer to the Go files in the `components/` directory and the upstream repository for details on available component tags.
 
@@ -69,6 +68,10 @@ The `default` distribution uses the standard component set provided by the upstr
 *   **Extensions:**
     *   `sigv4auth`: Provides AWS SigV4 authentication for exporters.
     *   `basicauth`: Provides Basic HTTP authentication for exporters/receivers.
+*   **Connectors:**
+    *   None. The default distribution does not include any connectors.
+
+**Note:** The `full` distribution includes all of the above components, plus connectors like `spanmetrics` and any custom components defined in this repository.
 
 For detailed configuration options of these components, please refer to the upstream [OpenTelemetry Lambda](https://github.com/open-telemetry/opentelemetry-lambda) and [OpenTelemetry Collector Contrib](https://github.com/open-telemetry/opentelemetry-collector-contrib) documentation.
 

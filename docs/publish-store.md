@@ -1,4 +1,4 @@
-# Design Document: Lambda Layer Metadata Store using DynamoDB
+    # Design Document: Lambda Layer Metadata Store using DynamoDB
 
 **Version:** 1.0
 **Date:** 2024-03-31
