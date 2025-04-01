@@ -41,13 +41,9 @@ on:
           - default
           - minimal
           - clickhouse
-          - clickhouse-otlphttp
           - full
-          - custom
-      build-tags:
-        description: 'Custom build tags (only used if distribution is set to custom)'
-        required: false
-        type: string
+          # - custom # Removed custom option
+      # build-tags input removed
       upstream-repo:
         description: 'Upstream OpenTelemetry Lambda repository'
         required: false
@@ -117,7 +113,7 @@ jobs:
             --upstream-ref ${{ inputs.upstream-ref }} \
             --distribution ${{ inputs.distribution }} \
             --arch ${{ matrix.architecture }} \
-            --build-tags "${{ inputs.build-tags }}" \
+            # --build-tags argument removed
             --output-dir ./build
 
       - name: Upload Collector Artifact
@@ -197,7 +193,7 @@ jobs:
         env:
           # Pass inputs to the script via environment variables
           DISTRIBUTION: ${{ github.event.inputs.distribution }}
-          CUSTOM_BUILD_TAGS_INPUT: ${{ github.event.inputs.build-tags }}
+          # CUSTOM_BUILD_TAGS_INPUT removed
           INPUT_COLLECTOR_VERSION: ${{ steps.collector-version.outputs.version }} # Use output from previous step
           RELEASE_GROUP: ${{ github.event.inputs.release-group }} # Pass release group input
           DIST_YAML_PATH: config/distributions.yaml

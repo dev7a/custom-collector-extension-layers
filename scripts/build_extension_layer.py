@@ -14,7 +14,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-import yaml  # Added for YAML parsing
+# import yaml # No longer needed directly here
+from distribution_utils import load_distributions, resolve_build_tags, DistributionError # Import utilities
 
 # Default values
 DEFAULT_UPSTREAM_REPO = "open-telemetry/opentelemetry-lambda"
@@ -50,64 +51,25 @@ def run_command(cmd: list, cwd: str = None, env: dict = None, check: bool = True
         
     return process
 
-def get_build_tags(distribution: str, custom_tags_str: str) -> str:
-    """Determine the Go build tags based on the distribution."""
-    tags_map = {
-        "minimal": "lambdacomponents.custom,lambdacomponents.receiver.otlp,lambdacomponents.processor.batch",
-        "clickhouse": "lambdacomponents.custom,lambdacomponents.receiver.otlp,lambdacomponents.processor.batch,lambdacomponents.exporter.clickhouse",
-        "clickhouse-otlphttp": "lambdacomponents.custom,lambdacomponents.receiver.otlp,lambdacomponents.processor.batch,lambdacomponents.exporter.clickhouse,lambdacomponents.exporter.otlphttp",
-        "full": "lambdacomponents.custom,lambdacomponents.all",
-        "default": "",
-    }
-
-    if distribution == "custom":
-        if custom_tags_str:
-            tags = custom_tags_str
-            # Ensure lambdacomponents.custom is present
-            if "lambdacomponents.custom" not in tags:
-                tags = f"lambdacomponents.custom,{tags}"
-            return tags
-        else:
-            # Default for custom if no tags are provided
-            return "lambdacomponents.custom"
-    
-    # Load distribution data from YAML file (now in config/ relative to repo root)
+# Removed custom_tags_str parameter
+def get_build_tags(distribution: str) -> str:
+    """Determine the Go build tags for a named distribution using the utility module."""
+            
+    # 'custom' distribution logic removed. Only handle named distributions.
     repo_root = Path(__file__).parent.parent.resolve() 
     yaml_path = repo_root / "config" / "distributions.yaml"
-    try:
-        with open(yaml_path, 'r') as f:
-            distributions_data = yaml.safe_load(f)
-        if not distributions_data:
-            print(f"Error: {yaml_path} is empty or invalid.", file=sys.stderr)
-            sys.exit(1)
-    except FileNotFoundError:
-        print(f"Error: {yaml_path} not found.", file=sys.stderr)
-        sys.exit(1)
-    except yaml.YAMLError as e:
-        print(f"Error parsing {yaml_path}: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    if distribution == "custom":
-        if custom_tags_str:
-            tags = custom_tags_str
-            # Ensure lambdacomponents.custom is present
-            if "lambdacomponents.custom" not in tags:
-                tags = f"lambdacomponents.custom,{tags}"
-            return tags
-        else:
-            # Default for custom if no tags are provided
-            return "lambdacomponents.custom"
     
-    # Look up buildtags list from the loaded YAML data
-    dist_info = distributions_data.get(distribution)
-    if dist_info is None:
-        print(f"Error: Distribution '{distribution}' not found in {yaml_path}", file=sys.stderr)
-        # Fallback or exit? Let's exit for now to enforce config correctness.
+    try:
+        distributions_data = load_distributions(yaml_path)
+        buildtags_list = resolve_build_tags(distribution, distributions_data)
+        return ",".join(buildtags_list) # Join the resolved list
+        
+    except DistributionError as e:
+        print(f"Error processing distributions: {e}", file=sys.stderr)
         sys.exit(1)
-        # return "" # Alternative: fallback to default?
-
-    buildtags_list = dist_info.get("buildtags", []) # Get the list, default to empty list
-    return ",".join(buildtags_list) # Join the list into a comma-separated string
+    except Exception as e: # Catch any other unexpected errors
+        print(f"An unexpected error occurred while getting build tags: {e}", file=sys.stderr)
+        sys.exit(1)
 
 def add_dependencies(collector_dir: Path, build_tags: str):
     """Add Go dependencies based on build tags."""
@@ -146,16 +108,15 @@ def main():
     # --- Load distributions from YAML for argument choices ---
     repo_root_for_args = Path(__file__).parent.parent.resolve()
     yaml_path_for_args = repo_root_for_args / "config" / "distributions.yaml"
-    distribution_choices = ['custom'] # 'custom' is always an option
+    distribution_choices = [] # Initialize empty, load all from YAML
     try:
-        with open(yaml_path_for_args, 'r') as f:
-            distributions_data_for_args = yaml.safe_load(f)
-            if distributions_data_for_args:
-                distribution_choices.extend(distributions_data_for_args.keys())
-            else:
-                 print(f"Warning: {yaml_path_for_args} is empty or invalid, only 'custom' distribution available.", file=sys.stderr)
-    except Exception as e:
-         print(f"Warning: Could not load {yaml_path_for_args} to determine distribution choices ({e}), only 'custom' available.", file=sys.stderr)
+        # Use the utility function to load distributions for choices
+        distributions_data_for_args = load_distributions(yaml_path_for_args)
+        distribution_choices.extend(distributions_data_for_args.keys())
+    except DistributionError as e:
+         print(f"Warning: Could not load distributions from {yaml_path_for_args} to determine choices ({e}), only 'custom' available.", file=sys.stderr)
+    except Exception as e: # Catch other potential errors during loading
+         print(f"Warning: An unexpected error occurred loading {yaml_path_for_args} ({e}), only 'custom' available.", file=sys.stderr)
     # --- End loading distributions ---
 
     parser = argparse.ArgumentParser(description='Build Custom OpenTelemetry Collector Lambda Layer.')
@@ -169,8 +130,7 @@ def main():
     parser.add_argument('-a', '--arch', default=DEFAULT_ARCHITECTURE,
                         choices=['amd64', 'arm64'],
                         help=f'Architecture (default: {DEFAULT_ARCHITECTURE})')
-    parser.add_argument('-t', '--build-tags', default='',
-                        help='Custom build tags (comma-separated, only used with -d custom)')
+    # Removed '-t'/'--build-tags' argument
     parser.add_argument('-o', '--output-dir', 
                         help='Output directory for built layer (default: current directory)')
     parser.add_argument('-k', '--keep-temp', action='store_true',
@@ -192,7 +152,7 @@ def main():
     print(f"Upstream Ref: {args.upstream_ref}")
     print(f"Distribution: {args.distribution}")
     print(f"Architecture: {args.arch}")
-    print(f"Build Tags: {args.build_tags if args.distribution == 'custom' else 'N/A'}")
+    # Removed Build Tags print line
     print(f"Output Directory: {output_dir}")
     print(f"Keep Temp Directory: {args.keep_temp}")
     print(f"Custom Component Dir: {component_dir}")
@@ -220,7 +180,8 @@ def main():
             # For now, we allow proceeding without custom components
 
         # Step 3: Determine build tags
-        build_tags = get_build_tags(args.distribution, args.build_tags)
+        # Removed args.build_tags argument from call
+        build_tags = get_build_tags(args.distribution) 
         print(f"Using build tags: '{build_tags}'")
 
         # Step 4: Add dependencies for custom components (if needed)

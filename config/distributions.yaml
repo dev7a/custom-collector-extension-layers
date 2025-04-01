@@ -1,32 +1,27 @@
-# Distribution definitions: name, description, and build tags
-# Used by build_extension_layer.py and publish-custom-layer-collector.yml workflow
+# Distribution definitions: name, description, base, and build tags
+# Used by build_extension_layer.py, get_release_info.py and publish-custom-layer-collector.yml workflow
+# The 'base' property allows inheriting buildtags from another distribution.
 
 default:
   description: "Standard upstream components"
   buildtags: [] # Special case: Empty list means no custom tags
 minimal:
-  description: "OTLP receiver, Batch processor"
+  description: "OTLP receiver, Batch processor, Decouple processor, OTLP/HTTP exporter"
   buildtags:
     - lambdacomponents.custom
     - lambdacomponents.receiver.otlp
     - lambdacomponents.processor.batch
+    - lambdacomponents.processor.decouple
+    - lambdacomponents.exporter.otlphttp
 clickhouse:
   description: "Minimal + ClickHouse exporter"
+  base: minimal # Inherits from minimal
   buildtags:
-    - lambdacomponents.custom
-    - lambdacomponents.receiver.otlp
-    - lambdacomponents.processor.batch
+    # Only add tags specific to this distribution
     - lambdacomponents.exporter.clickhouse
-clickhouse-otlphttp:
-  description: "ClickHouse + OTLP/HTTP exporter"
-  buildtags:
-    - lambdacomponents.custom
-    - lambdacomponents.receiver.otlp
-    - lambdacomponents.processor.batch
-    - lambdacomponents.exporter.clickhouse
-    - lambdacomponents.exporter.otlphttp
 full:
   description: "All available upstream and custom components"
   buildtags:
+    # 'full' does not use base, it defines all tags explicitly
     - lambdacomponents.custom
     - lambdacomponents.all

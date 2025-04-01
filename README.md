@@ -24,10 +24,11 @@ This repository can build several predefined distributions:
 
 - `default`: Standard OpenTelemetry Collector
 - `minimal`: A minimal distribution with just OTLP receivers and batch processors
-- `clickhouse`: Distribution with ClickHouse exporter capabilities
-- `clickhouse-otlphttp`: Distribution with ClickHouse and OTLP HTTP exporters
+- `clickhouse`: Distribution with ClickHouse exporter capabilities (inherits from `minimal`)
+- `clickhouse-otlphttp`: Distribution with ClickHouse and OTLP HTTP exporters (inherits from `clickhouse`)
 - `full`: Complete distribution with all available components
-- `custom`: Build with custom-specified build tags
+
+Distributions can now inherit build tags from a `base` distribution, simplifying configuration (see `config/distributions.yaml`). Only predefined distributions from this file can be built.
 
 ## Understanding Distributions
 
@@ -40,9 +41,8 @@ When running the "Publish Custom Collector Lambda layer" workflow, the **Distrib
 | `clickhouse`          | `lambdacomponents.custom`, OTLP Receiver, Batch Processor, **ClickHouse Exporter**                                              | Includes the custom ClickHouse exporter for sending data to ClickHouse.     |
 | `clickhouse-otlphttp` | `lambdacomponents.custom`, OTLP Receiver, Batch Processor, **ClickHouse Exporter**, **OTLP/HTTP Exporter**                       | Includes both the ClickHouse and standard OTLP/HTTP exporters.              |
 | `full`                | `lambdacomponents.custom`, `lambdacomponents.all` (All custom *and* upstream components)                                        | A comprehensive layer including all available upstream and custom components. |
-| `custom`              | `lambdacomponents.custom` + tags specified in **Build Tags** input                                                              | Allows specifying a custom set of components using Go build tags directly.    |
 
-**Note:** All distributions except `default` automatically include the `lambdacomponents.custom` build tag, which is necessary for enabling the custom component overlay mechanism. The `custom` distribution allows fine-grained control by specifying exact build tags. Refer to the Go files in the `components/` directory and the upstream repository for details on available component tags.
+**Note:** All distributions except `default` automatically include the `lambdacomponents.custom` build tag, which is necessary for enabling the custom component overlay mechanism. Distributions can also define a `base` distribution in `config/distributions.yaml` to inherit build tags from; the final tag set is the unique combination of the base tags and the distribution's specific tags. Refer to the Go files in the `components/` directory and the upstream repository for details on available component tags.
 
 ## Upstream Default Components
 
@@ -81,8 +81,8 @@ For detailed configuration options of these components, please refer to the upst
 3. Click "Run workflow" and configure the options:
    - **Architecture**: Choose between `all`, `amd64`, or `arm64`
    - **AWS Region**: Select the AWS region(s) for publishing
-   - **Distribution**: Select a predefined component set or `custom`
-   - **Build Tags**: (Only for `custom` distribution) Comma-separated list of build tags
+   - **Distribution**: Select a predefined component set from `config/distributions.yaml`
+   # Build Tags input removed
    - **Upstream Repo**: Repository to clone (default: `open-telemetry/opentelemetry-lambda`)
    - **Upstream Ref**: Git reference to use (branch, tag, commit SHA)
 
@@ -109,14 +109,21 @@ If you want to create a new named option in the "Distribution" dropdown that com
 2.  Add a new top-level key with your desired distribution name (e.g., `my-custom-dist`).
 3.  Define the `description` and the list of `buildtags` required for this distribution. Remember to include `lambdacomponents.custom` if you are including any custom components or deviating from the upstream default.
     ```yaml
-    my-custom-dist:
-      description: "A custom set including component X and Y"
+    my-base-dist:
+      description: "A base set of components"
       buildtags:
         - lambdacomponents.custom
         - lambdacomponents.receiver.otlp
         - lambdacomponents.processor.batch
-        - lambdacomponents.exporter.myexporter # If you added this custom component
+
+    my-custom-dist:
+      description: "Inherits from base and adds myexporter"
+      base: my-base-dist # Optional: Inherit tags from another distribution
+      buildtags:
+        # Only list tags *not* already in the base
+        - lambdacomponents.exporter.myexporter 
     ```
+    If `base` is specified, the `buildtags` from the base distribution are automatically included. The final set of tags will be the unique combination of the base tags and the tags listed directly under `buildtags` for the current distribution.
 4.  **(Optional but Recommended for UI)** Manually edit `.github/workflows/publish-custom-layer-collector.yml` and add your new distribution name (`my-custom-dist`) to the `options` list under `on.workflow_dispatch.inputs.distribution`. This makes it selectable in the GitHub Actions UI dropdown.
 5.  Update the "Available Distributions" list and the "Understanding Distributions" table in this README.md to include your new distribution preset.
 
