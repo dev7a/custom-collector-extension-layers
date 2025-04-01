@@ -113,7 +113,6 @@ jobs:
             --upstream-ref ${{ inputs.upstream-ref }} \
             --distribution ${{ inputs.distribution }} \
             --arch ${{ matrix.architecture }} \
-            # --build-tags argument removed
             --output-dir ./build
 
       - name: Upload Collector Artifact
