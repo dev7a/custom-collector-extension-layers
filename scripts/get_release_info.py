@@ -64,16 +64,16 @@ except DistributionError as e:
         print(f"Warning: Distribution '{distribution}' not found, attempting fallback to 'default'.", file=sys.stderr)
         try:
             # We assume distributions_data was loaded if the error wasn't file not found/parse error
-                # If loading failed initially, this fallback won't work, which is intended.
-                buildtags_list = resolve_build_tags('default', distributions_data)
-                build_tags = ",".join(buildtags_list)
-                print(f"Successfully fell back to default tags: {build_tags}")
-            except DistributionError as fallback_e:
-                print(f"Error resolving fallback 'default' distribution: {fallback_e}", file=sys.stderr)
-                sys.exit(1) # Exit if fallback also fails
-            except NameError: # Handle case where distributions_data wasn't loaded
-                 print(f"Error: Cannot fallback to default because distribution file could not be loaded initially.", file=sys.stderr)
-             sys.exit(1)
+            # If loading failed initially, this fallback won't work, which is intended.
+            buildtags_list = resolve_build_tags('default', distributions_data)
+            build_tags = ",".join(buildtags_list)
+            print(f"Successfully fell back to default tags: {build_tags}")
+        except DistributionError as fallback_e:
+            print(f"Error resolving fallback 'default' distribution: {fallback_e}", file=sys.stderr)
+            sys.exit(1) # Exit if fallback also fails
+        except NameError: # Handle case where distributions_data wasn't loaded
+            print(f"Error: Cannot fallback to default because distribution file could not be loaded initially.", file=sys.stderr)
+            sys.exit(1)
         else:
             # Exit for other DistributionErrors (circular dep, invalid format, etc.) or if fallback failed
             sys.exit(1)
