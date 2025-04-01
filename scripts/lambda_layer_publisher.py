@@ -493,6 +493,10 @@ def main():
     parser.add_argument('--collector-version', 
                         default=os.environ.get('PY_COLLECTOR_VERSION'), 
                         help='Version of the OpenTelemetry collector included. Env: PY_COLLECTOR_VERSION')
+    parser.add_argument('--public', 
+                        action='store_true',
+                        default=os.environ.get('PY_PUBLIC', '').lower() in ('true', 'yes', '1'),
+                        help='Make the layer publicly accessible. Env: PY_PUBLIC')
     
     args = parser.parse_args()
     
@@ -534,8 +538,12 @@ def main():
             build_tags=build_tags_env # Pass build tags to publish_layer
         )
         if layer_arn:
-            # Step 5: Make newly published layer public
-            public_success = make_layer_public(layer_name, layer_arn, args.region)
+            # Step 5: Make layer public only if explicitly requested
+            public_success = True
+            if args.public:
+                public_success = make_layer_public(layer_name, layer_arn, args.region)
+            else:
+                print("Keeping layer private (default behavior). Use --public to make it publicly accessible.")
             
             if public_success:
                 # Step 5.5: Write Metadata for NEW layer to DynamoDB

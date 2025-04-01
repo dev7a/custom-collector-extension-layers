@@ -208,7 +208,7 @@ jobs:
       matrix: ${{ fromJSON(needs.prepare-release-jobs.outputs.release_jobs) }}
     with:
       artifact-name: collector-${{ matrix.architecture }}.zip
-      layer-name: custom-otel-collector
+      layer-name: otel-ext-layer
       architecture: ${{ matrix.architecture }}
       runtimes: "nodejs18.x nodejs20.x nodejs22.x java17 java21 python3.9 python3.10 python3.11 python3.12 python3.13 dotnet6 dotnet8 provided.al2 provided.al2023"
       release-group: ${{ needs.prepare-release-jobs.outputs.release_group }} # Use prepare job output
@@ -216,6 +216,7 @@ jobs:
       distribution: ${{ needs.prepare-release-jobs.outputs.distribution }} # Use prepare job output
       collector-version: ${{ needs.prepare-release-jobs.outputs.collector_version }} # Use prepare job output
       build-tags: ${{ needs.prepare-release-jobs.outputs.build_tags }} # Use prepare job output
+      make-public: true # Set to true for production releases
     secrets: inherit
 
   generate-layers-report:

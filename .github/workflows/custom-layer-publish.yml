@@ -46,6 +46,11 @@ on:
         required: false # Make optional in case it's not passed for some reason
         type: string
         default: ''
+      make-public:
+        description: 'Whether to make the layer publicly accessible'
+        required: false
+        type: boolean
+        default: true
     outputs:
       layer_arn:
         description: 'ARN of the published or reused layer'
@@ -98,6 +103,7 @@ jobs:
           PY_DISTRIBUTION: ${{ inputs.distribution }}
           PY_COLLECTOR_VERSION: ${{ inputs.collector-version }}
           PY_BUILD_TAGS: ${{ inputs.build-tags }} # Pass build tags to script
+          PY_PUBLIC: ${{ inputs.make-public }}
         run: |
           # Call the script directly - it will read args from environment variables
           python3 scripts/lambda_layer_publisher.py
