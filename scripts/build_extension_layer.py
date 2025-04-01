@@ -14,7 +14,6 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-# import yaml # No longer needed directly here
 from distribution_utils import load_distributions, resolve_build_tags, DistributionError # Import utilities
 
 # Default values

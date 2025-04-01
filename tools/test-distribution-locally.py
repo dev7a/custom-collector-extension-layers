@@ -20,17 +20,40 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+import re
 
 import click
 
 
-def run_command(cmd, cwd=None, env=None, check=True, capture_output=False):
-    """Run a shell command and print its output."""
+def run_command(cmd, cwd=None, env=None, check=True, capture_output=False, capture_github_env=False):
+    """Run a shell command and print its output. Optionally capture GitHub environment variables.
+    
+    Args:
+        cmd: Command to run as a list of strings
+        cwd: Working directory for the command
+        env: Environment variables to add
+        check: Whether to raise an exception on non-zero exit
+        capture_output: Whether to capture stdout/stderr instead of streaming
+        capture_github_env: Whether to capture GitHub environment variables
+    """
     click.echo(f"Running: {' '.join(cmd)}" + (f" in {cwd}" if cwd else ""))
     
     full_env = os.environ.copy()
     if env:
         full_env.update(env)
+    
+    github_env_file = None
+    if capture_github_env:
+        # Create a temporary file to capture GitHub environment variables
+        github_env_file = tempfile.NamedTemporaryFile(mode='w+', delete=False)
+        github_env_path = github_env_file.name
+        github_env_file.close()  # Close it so the subprocess can write to it
+        
+        # Set GitHub environment file paths
+        full_env.update({
+            "GITHUB_ENV": github_env_path,
+            "GITHUB_OUTPUT": github_env_path  # For newer GitHub Actions
+        })
     
     if capture_output:
         process = subprocess.run(
@@ -41,6 +64,12 @@ def run_command(cmd, cwd=None, env=None, check=True, capture_output=False):
             check=False,  # Don't check here, we'll handle errors
             capture_output=True
         )
+        # Only print output if there's an error
+        if process.returncode != 0:
+            if process.stdout:
+                click.echo(process.stdout)
+            if process.stderr:
+                click.secho(process.stderr, fg="red", err=True)
     else:
         process = subprocess.run(
             cmd,
@@ -50,7 +79,25 @@ def run_command(cmd, cwd=None, env=None, check=True, capture_output=False):
             check=check
         )
     
-    return process
+    # Parse GitHub env variables if requested
+    github_env_vars = {}
+    if capture_github_env and github_env_file:
+        try:
+            with open(github_env_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and '=' in line:
+                        key, value = line.split('=', 1)
+                        github_env_vars[key] = value
+            # Clean up the temporary file
+            os.unlink(github_env_path)
+        except Exception as e:
+            click.secho(f"Error parsing GitHub environment variables: {e}", fg="yellow", err=True)
+    
+    if capture_github_env:
+        return process, github_env_vars
+    else:
+        return process
 
 
 def check_aws_credentials():
@@ -178,7 +225,7 @@ def main(distribution, architecture, upstream_repo, upstream_ref, layer_name, ru
         "--output-dir", str(build_dir)
     ]
     
-    build_result = run_command(build_cmd)
+    build_result = run_command(build_cmd, capture_output=True)
     
     if build_result.returncode != 0:
         click.secho("Build failed. Exiting.", fg="red", err=True)
@@ -206,19 +253,7 @@ def main(distribution, architecture, upstream_repo, upstream_ref, layer_name, ru
     
     # Get the current AWS region
     region = get_aws_region()
-    
-    # Ensure boto3 is installed
-    try:
-        import boto3
-    except ImportError:
-        click.secho("boto3 is required for publishing layers. Installing...", fg="yellow", err=True)
-        run_command([sys.executable, "-m", "pip", "install", "boto3"])
-        try:
-            import boto3
-        except ImportError:
-            click.secho("Failed to install boto3. Please install it manually: pip install boto3", fg="red", err=True)
-            sys.exit(1)
-    
+        
     # Prepare environment variables for the publisher script
     publish_env = {
         "PY_LAYER_NAME": layer_name,
@@ -241,29 +276,40 @@ def main(distribution, architecture, upstream_repo, upstream_ref, layer_name, ru
     
     # Run with capture_output in verbose mode to show detailed error messages
     if verbose:
-        publish_result = run_command(
+        publish_result, github_env = run_command(
             [sys.executable, str(publisher_script)],
             env=publish_env,
+            capture_github_env=True,
             capture_output=True
         )
         if publish_result.returncode != 0:
             click.secho("Publish failed with the following error:", fg="red", err=True)
-            click.secho(publish_result.stderr, fg="red", err=True)
-            click.echo(publish_result.stdout)
             sys.exit(1)
-        else:
-            click.echo(publish_result.stdout)
     else:
-        # Standard run without capturing output
-        publish_result = run_command(
+        # Standard run with dimmed output
+        publish_result, github_env = run_command(
             [sys.executable, str(publisher_script)],
-            env=publish_env
+            env=publish_env,
+            capture_github_env=True,
+            capture_output=True
         )
         if publish_result.returncode != 0:
             click.secho("Publish failed. Use --verbose for more details.", fg="red", err=True)
             sys.exit(1)
     
-    click.secho(f"Successfully published {distribution} distribution to region {region} as a 'local' release.", fg="green", bold=True)
+    # Display layer information from GitHub environment variables
+    if 'layer_arn' in github_env:
+        click.secho(f"\n✅ Successfully published layer:", fg="green", bold=True)
+        click.secho(f"   {github_env['layer_arn']}", fg="green")
+    else:
+        # If we can't find the ARN in github_env, extract it from stdout as fallback
+        layer_arn_match = re.search(r'Published Layer ARN: (arn:aws:lambda:[^:]+:[^:]+:layer:[^:]+:[0-9]+)', 
+                                    publish_result.stdout if hasattr(publish_result, 'stdout') else "")
+        if layer_arn_match:
+            click.secho(f"\n✅ Successfully published layer:", fg="green", bold=True)
+            click.secho(f"   {layer_arn_match.group(1)}", fg="green")
+    
+    click.secho(f"\nSuccessfully published {distribution} distribution to region {region} as a 'local' release.", fg="green")
     click.secho("You can now test this layer by attaching it to a Lambda function.", fg="green")
 
 

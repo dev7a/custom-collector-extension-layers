@@ -12,12 +12,10 @@ by fetching metadata from a DynamoDB table.
 
 import argparse
 import fnmatch
-import os
-import re
 from datetime import datetime
 from decimal import Decimal # Import Decimal for DynamoDB number handling
-from typing import Dict, List, Optional, Tuple
-
+from typing import Dict, List
+import sys
 # Try importing boto3
 try:
     import boto3
