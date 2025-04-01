@@ -75,6 +75,55 @@ The `default` distribution uses the standard component set provided by the upstr
 
 For detailed configuration options of these components, please refer to the upstream [OpenTelemetry Lambda](https://github.com/open-telemetry/opentelemetry-lambda) and [OpenTelemetry Collector Contrib](https://github.com/open-telemetry/opentelemetry-collector-contrib) documentation.
 
+## Detailed Component Comparison: Default vs Full Builds
+
+The following tables provide a detailed comparison of components included in the `default` and `full` distributions:
+
+### Connectors
+
+| Component Name | Default Build | Full Build |
+|---------------|--------------|------------|
+| spanmetrics |   | ✓ |
+
+### Exporters
+
+| Component Name | Default Build | Full Build |
+|---------------|--------------|------------|
+| debug | ✓ | ✓ |
+| otlp | ✓ | ✓ |
+| otlphttp | ✓ | ✓ |
+| prometheusremotewrite | ✓ | ✓ |
+
+### Extensions
+
+| Component Name | Default Build | Full Build |
+|---------------|--------------|------------|
+| basicauth | ✓ | ✓ |
+| sigv4auth | ✓ | ✓ |
+
+### Processors
+
+| Component Name | Default Build | Full Build |
+|---------------|--------------|------------|
+| attributes | ✓ | ✓ |
+| batch | ✓ | ✓ |
+| coldstart | ✓ | ✓ |
+| decouple | ✓ | ✓ |
+| filter | ✓ | ✓ |
+| memorylimiter | ✓ | ✓ |
+| probabilisticsampler | ✓ | ✓ |
+| resource | ✓ | ✓ |
+| span | ✓ | ✓ |
+
+### Receivers
+
+| Component Name | Default Build | Full Build |
+|---------------|--------------|------------|
+| otlp | ✓ | ✓ |
+| telemetryapi | ✓ | ✓ |
+
+As shown above, the key difference is that the `full` distribution includes additional connector components that are not available in the `default` distribution.
+
 ## Usage
 
 ### Publishing a Custom Layer
