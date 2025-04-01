@@ -82,7 +82,6 @@ For detailed configuration options of these components, please refer to the upst
    - **Architecture**: Choose between `all`, `amd64`, or `arm64`
    - **AWS Region**: Select the AWS region(s) for publishing
    - **Distribution**: Select a predefined component set from `config/distributions.yaml`
-   # Build Tags input removed
    - **Upstream Repo**: Repository to clone (default: `open-telemetry/opentelemetry-lambda`)
    - **Upstream Ref**: Git reference to use (branch, tag, commit SHA)
 
@@ -124,7 +123,7 @@ If you want to create a new named option in the "Distribution" dropdown that com
         - lambdacomponents.exporter.myexporter 
     ```
     If `base` is specified, the `buildtags` from the base distribution are automatically included. The final set of tags will be the unique combination of the base tags and the tags listed directly under `buildtags` for the current distribution.
-4.  **(Optional but Recommended for UI)** Manually edit `.github/workflows/publish-custom-layer-collector.yml` and add your new distribution name (`my-custom-dist`) to the `options` list under `on.workflow_dispatch.inputs.distribution`. This makes it selectable in the GitHub Actions UI dropdown.
+4.  Manually edit `.github/workflows/publish-custom-layer-collector.yml` and add your new distribution name (`my-custom-dist`) to the `options` list under `on.workflow_dispatch.inputs.distribution`. This makes it selectable in the GitHub Actions UI dropdown.
 5.  Update the "Available Distributions" list and the "Understanding Distributions" table in this README.md to include your new distribution preset.
 
 See `docs/distribution-management.md` for more details on the refactored distribution management approach.
@@ -134,9 +133,8 @@ See `docs/distribution-management.md` for more details on the refactored distrib
 ### Directory Structure
 
 - `.github/workflows/`: GitHub Actions workflow definitions
-- `components/`: Custom components to overlay onto the upstream repo
-  - `collector/lambdacomponents/{component-type}/{component-name}.go`: Component implementations
-- `docs/`: Documentation for custom components
+- `components/collector/lambdacomponents/{component-type}/{component-name}.go``: Custom components to overlay onto the upstream repo, following the directory structure of the upstream
+- `docs/`: Documentation for custom components and various implementation plans
 
 ### Workflow Architecture
 
@@ -157,4 +155,4 @@ The custom layers are built using a two-workflow approach:
 
 ## License
 
-This project is licensed under the Apache 2.0 License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
