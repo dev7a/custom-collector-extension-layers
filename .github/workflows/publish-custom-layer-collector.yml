@@ -123,8 +123,8 @@ jobs:
       - name: Upload Collector Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: custom-otel-collector-layer-${{ matrix.architecture }}.zip
-          path: ./build/custom-otel-collector-layer-${{ matrix.architecture }}.zip
+          name: collector-${{ matrix.architecture }}.zip
+          path: ./build/collector-${{ matrix.architecture }}.zip
 
   prepare-release-jobs:
     needs: build-layer
@@ -212,7 +212,7 @@ jobs:
     strategy:
       matrix: ${{ fromJSON(needs.prepare-release-jobs.outputs.release_jobs) }}
     with:
-      artifact-name: custom-otel-collector-layer-${{ matrix.architecture }}.zip
+      artifact-name: collector-${{ matrix.architecture }}.zip
       layer-name: custom-otel-collector
       architecture: ${{ matrix.architecture }}
       runtimes: "nodejs18.x nodejs20.x nodejs22.x java17 java21 python3.9 python3.10 python3.11 python3.12 python3.13 dotnet6 dotnet8 provided.al2 provided.al2023"
@@ -321,14 +321,14 @@ jobs:
       - name: Download Layer Artifacts (amd64)
         uses: actions/download-artifact@v4
         with:
-          name: custom-otel-collector-layer-amd64.zip
+          name: collector-amd64.zip
           path: ./release-assets/
         if: ${{ github.event.inputs.architecture == 'all' || github.event.inputs.architecture == 'amd64' }}
 
       - name: Download Layer Artifacts (arm64)
         uses: actions/download-artifact@v4
         with:
-          name: custom-otel-collector-layer-arm64.zip
+          name: collector-arm64.zip
           path: ./release-assets/
         if: ${{ github.event.inputs.architecture == 'all' || github.event.inputs.architecture == 'arm64' }}
 

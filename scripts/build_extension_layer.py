@@ -248,7 +248,7 @@ def main():
         # Step 6: Rename and Copy the built layer
         build_output_dir = collector_dir / "build"
         original_filename = f"opentelemetry-collector-layer-{args.arch}.zip"
-        new_filename = f"custom-otel-collector-layer-{args.arch}.zip" # Our desired final name
+        new_filename = f"collector-{args.arch}.zip" # Our desired final name
         
         original_build_file = build_output_dir / original_filename
         renamed_build_file = build_output_dir / new_filename # Path for renamed file within build dir
