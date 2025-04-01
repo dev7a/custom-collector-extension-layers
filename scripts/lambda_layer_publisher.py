@@ -7,7 +7,7 @@ A comprehensive script to handle AWS Lambda layer publishing:
 - Calculates MD5 hash of layer content
 - Checks if an identical layer already exists
 - Publishes new layer version if needed
-- Makes the layer public
+- Makes the layer public if requested
 - Writes metadata to DynamoDB
 - Outputs a summary of the action
 """
@@ -17,14 +17,12 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
-import tempfile
-from datetime import datetime, timezone # Added timezone
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Set
 
-# Try importing boto3 for DynamoDB interaction
+# Import boto3 for AWS API operations
 try:
     import boto3
     from botocore.exceptions import ClientError
@@ -40,38 +38,6 @@ DEFAULT_UPSTREAM_REPO = "open-telemetry/opentelemetry-lambda"
 DEFAULT_UPSTREAM_REF = "main"
 DEFAULT_DISTRIBUTION = "default"
 DEFAULT_ARCHITECTURE = "amd64"
-
-
-def run_aws_command(cmd: str) -> Union[Dict, List, str, None]:
-    """Run an AWS CLI command and return its output."""
-    try:
-        result = subprocess.run(
-            cmd, shell=True, check=True, 
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
-            text=True
-        )
-        # Try to parse as JSON if possible
-        try:
-            return json.loads(result.stdout)
-        except json.JSONDecodeError:
-            # Return as text if not JSON
-            return result.stdout.strip()
-    except subprocess.CalledProcessError as e:
-        stderr_lower = e.stderr.lower()
-        if "resourcenotfoundexception" in stderr_lower:
-            # Handle case where the layer or policy doesn't exist gracefully
-            print(f"AWS resource not found (expected in some cases): {e.stderr.strip()}", file=sys.stderr)
-            return None
-        elif "accessdenied" in stderr_lower:
-             print(f"AWS Access Denied: {e.stderr.strip()}\nPlease check IAM permissions.", file=sys.stderr)
-             sys.exit(f"AWS Access Denied for command: {cmd}") # Exit on permission errors
-        else:
-            print(f"Error running AWS command: {e}", file=sys.stderr)
-            print(f"Command was: {cmd}", file=sys.stderr)
-            print(f"Stderr: {e.stderr}", file=sys.stderr)
-            # Allow script to continue for some errors, but maybe exit for critical ones?
-            # For now, returning None, but consider specific error handling
-            return None 
 
 
 def calculate_md5(filename: str) -> str:
@@ -119,10 +85,9 @@ def construct_layer_name(
     layer_version_str_for_naming = ""
     
     # Handle architecture
-    arch_str = "x86_64 arm64"  # Default
+    arch_str = architecture.replace("amd64", "x86_64") if architecture else "x86_64"
     if architecture:
         layer_name = f"{layer_name}-{architecture}"
-        arch_str = architecture.replace("amd64", "x86_64")
     
     # Add distribution if specified
     if distribution: 
@@ -164,43 +129,61 @@ def construct_layer_name(
 
 
 def check_layer_exists(layer_name: str, current_md5: str, region: str) -> Tuple[bool, Optional[str]]:
-    """Check if a Lambda layer with the given name and MD5 hash exists."""
+    """Check if a Lambda layer with the given name and MD5 hash exists using boto3."""
     print(f"Checking if layer '{layer_name}' already exists in {region}...")
     
-    cmd = f"aws lambda list-layer-versions --layer-name {layer_name} " \
-          f"--query 'LayerVersions[].[LayerVersionArn, Description]' " \
-          f"--output json --region {region}"
-          
-    existing_layers = run_aws_command(cmd)
-    
-    if not existing_layers or not isinstance(existing_layers, list) or existing_layers == []:
-        print("No existing layers found or failed to parse existing layers.")
+    try:
+        lambda_client = boto3.client('lambda', region_name=region)
+        
+        # Get all versions of the layer
+        try:
+            paginator = lambda_client.get_paginator('list_layer_versions')
+            existing_layers = []
+            
+            for page in paginator.paginate(LayerName=layer_name):
+                for version in page['LayerVersions']:
+                    existing_layers.append({
+                        'LayerVersionArn': version['LayerVersionArn'],
+                        'Description': version.get('Description', '')
+                    })
+                    
+            if not existing_layers:
+                print("No existing layers found.")
+                return False, None
+                
+            print(f"Found existing layers, checking for MD5 match...")
+            print(f"Current layer MD5: {current_md5}")
+            
+            # Check for MD5 match in descriptions
+            for layer in existing_layers:
+                if current_md5 in layer['Description']:
+                    matching_layer = layer['LayerVersionArn']
+                    print(f"Found layer with matching MD5 hash: {matching_layer}")
+                    return True, matching_layer
+            
+            # No match found, return the latest version ARN if available
+            if existing_layers:
+                latest_layer = existing_layers[0]['LayerVersionArn']
+                print(f"No layer with matching MD5 found. Latest version: {latest_layer}")
+                return False, latest_layer
+                
+        except lambda_client.exceptions.ResourceNotFoundException:
+            print(f"Layer '{layer_name}' does not exist yet.")
+            return False, None
+            
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', '')
+        error_message = e.response.get('Error', {}).get('Message', '')
+        
+        if error_code == 'ResourceNotFoundException':
+            print(f"Layer '{layer_name}' does not exist yet.")
+            return False, None
+        else:
+            print(f"AWS ClientError: {error_code} - {error_message}", file=sys.stderr)
+            return False, None
+    except Exception as e:
+        print(f"Error checking for existing layers: {e}", file=sys.stderr)
         return False, None
-        
-    print(f"Found existing layers, checking for MD5 match...")
-    print(f"Current layer MD5: {current_md5}")
-    
-    # Check for MD5 match in layer descriptions
-    matching_layer = None
-    for layer_info in existing_layers:
-         # Ensure layer_info is a list/tuple with at least 2 elements
-         if isinstance(layer_info, (list, tuple)) and len(layer_info) >= 2:
-            layer_arn, description = layer_info[0], layer_info[1]
-            if description and isinstance(description, str) and current_md5 in description:
-                matching_layer = layer_arn
-                print(f"Found layer with matching MD5 hash: {layer_arn}")
-                return True, matching_layer
-         else:
-             print(f"Warning: Unexpected format for layer version info: {layer_info}", file=sys.stderr)
-    
-    # No match found, get the latest version ARN from the first element if list is not empty
-    if existing_layers and isinstance(existing_layers[0], (list, tuple)) and len(existing_layers[0]) > 0:
-        latest_layer = existing_layers[0][0]
-        print(f"No layer with matching MD5 found. Latest version: {latest_layer}")
-        return False, latest_layer
-        
-    print("No layer with matching MD5 found and could not determine latest version.")
-    return False, None
 
 
 def publish_layer(
@@ -210,9 +193,9 @@ def publish_layer(
     region: str,
     arch: str,
     runtimes: Optional[str] = None,
-    build_tags: Optional[str] = None # Added build_tags parameter
+    build_tags: Optional[str] = None
 ) -> Optional[str]:
-    """Publish a new Lambda layer version."""
+    """Publish a new Lambda layer version using boto3."""
     print(f"Publishing layer with name: {layer_name}")
     
     # Construct description
@@ -223,79 +206,104 @@ def publish_layer(
         print(f"Warning: Truncated layer description due to length limit.", file=sys.stderr)
         
     print(f"Layer Description: {description}")
-
-    runtime_param = f"--compatible-runtimes {runtimes}" if runtimes else ""
-    cmd = f"aws lambda publish-layer-version " \
-          f"--layer-name {layer_name} " \
-          f"--description \"{description}\" " \
-          f"--license-info \"Apache 2.0\" " \
-          f"--compatible-architectures {arch} " \
-          f"{runtime_param} " \
-          f"--zip-file fileb://{layer_file} " \
-          f"--query 'LayerVersionArn' " \
-          f"--output text " \
-          f"--region {region}"
-    layer_arn = run_aws_command(cmd)
-    if layer_arn:
+    
+    # Convert arch from amd64 to x86_64 if needed
+    compatible_architectures = [arch.replace("amd64", "x86_64")]
+    
+    # Prepare the runtimes list
+    compatible_runtimes = runtimes.split() if runtimes else None
+    
+    try:
+        # Read the ZIP file content
+        with open(layer_file, 'rb') as f:
+            zip_content = f.read()
+        
+        lambda_client = boto3.client('lambda', region_name=region)
+        
+        # Prepare the parameters
+        params = {
+            'LayerName': layer_name,
+            'Description': description,
+            'Content': {
+                'ZipFile': zip_content
+            },
+            'CompatibleArchitectures': compatible_architectures,
+            'LicenseInfo': 'Apache 2.0'
+        }
+        
+        # Add runtimes if specified
+        if compatible_runtimes:
+            params['CompatibleRuntimes'] = compatible_runtimes
+        
+        # Publish the layer
+        response = lambda_client.publish_layer_version(**params)
+        
+        layer_arn = response['LayerVersionArn']
         print(f"Published Layer ARN: {layer_arn}")
         return layer_arn
-    return None
+        
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', '')
+        error_message = e.response.get('Error', {}).get('Message', '')
+        print(f"AWS ClientError: {error_code} - {error_message}", file=sys.stderr)
+        return None
+    except Exception as e:
+        print(f"Error publishing layer: {e}", file=sys.stderr)
+        return None
 
 
 def make_layer_public(layer_name: str, layer_arn: str, region: str) -> bool:
-    """Make a Lambda layer version publicly accessible."""
+    """Make a Lambda layer version publicly accessible using boto3."""
     print(f"Making layer public: {layer_arn}")
     if not layer_arn:
         print("No layer ARN found. Cannot make layer public.", file=sys.stderr)
         return False
     
+    # Extract version number from ARN
     version_match = re.search(r':(\d+)$', layer_arn)
-    if version_match:
-        layer_version = version_match.group(1)
-    else:
+    if not version_match:
         print(f"Failed to extract valid version number from ARN: {layer_arn}", file=sys.stderr)
-        print("Attempting alternate method to determine layer version...")
-        cmd = f"aws lambda list-layer-versions " \
-              f"--layer-name {layer_name} " \
-              f"--query \"LayerVersions[?LayerVersionArn=='{layer_arn}'].Version\" " \
-              f"--output text " \
-              f"--region {region}"
-        layer_version = run_aws_command(cmd)
-        if not layer_version or layer_version == "None":
-            print("Failed to determine layer version. Cannot make layer public.", file=sys.stderr)
-            return False
-    
+        return False
+        
+    layer_version = int(version_match.group(1))
     print(f"Using layer version: {layer_version}")
     
-    # Check if permission already exists
-    cmd = f"aws lambda get-layer-version-policy " \
-          f"--layer-name {layer_name} " \
-          f"--version-number {layer_version} " \
-          f"--query 'Policy' " \
-          f"--output text " \
-          f"--region {region}"
-    permission_exists = run_aws_command(cmd)
-    
-    if permission_exists and permission_exists != "None":
-        print("Layer is already public. Skipping permission update.")
-        return True
-    
-    # Add public permission
-    print("Setting public permissions on layer...")
-    cmd = f"aws lambda add-layer-version-permission " \
-          f"--layer-name {layer_name} " \
-          f"--version-number {layer_version} " \
-          f"--principal \"*\" " \
-          f"--statement-id publish " \
-          f"--action lambda:GetLayerVersion " \
-          f"--region {region}"
-    result = run_aws_command(cmd)
-    if result:
+    try:
+        lambda_client = boto3.client('lambda', region_name=region)
+        
+        # Check if permission already exists
+        try:
+            lambda_client.get_layer_version_policy(
+                LayerName=layer_name,
+                VersionNumber=layer_version
+            )
+            print("Layer is already public. Skipping permission update.")
+            return True
+        except lambda_client.exceptions.ResourceNotFoundException:
+            # Expected exception if no policy exists
+            pass
+        
+        # Add public permission
+        print("Setting public permissions on layer...")
+        lambda_client.add_layer_version_permission(
+            LayerName=layer_name,
+            VersionNumber=layer_version,
+            StatementId='publish',
+            Action='lambda:GetLayerVersion',
+            Principal='*'
+        )
+        
         print("Layer successfully made public.")
         return True
-    
-    print(f"Failed to make layer public. Check AWS CLI output above for details.", file=sys.stderr)
-    return False
+        
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', '')
+        error_message = e.response.get('Error', {}).get('Message', '')
+        print(f"AWS ClientError: {error_code} - {error_message}", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"Error making layer public: {e}", file=sys.stderr)
+        return False
 
 
 def write_metadata_to_dynamodb(metadata: dict) -> bool:
@@ -321,7 +329,7 @@ def write_metadata_to_dynamodb(metadata: dict) -> bool:
     item_to_write = {k: v for k, v in metadata.items() if v is not None}
     
     try:
-        dynamodb = boto3.resource('dynamodb', region_name='us-east-1') # New: Always use us-east-1
+        dynamodb = boto3.resource('dynamodb', region_name='us-east-1') # Always use us-east-1
         table = dynamodb.Table(DYNAMODB_TABLE_NAME)
         
         response = table.put_item(Item=item_to_write)
@@ -442,7 +450,7 @@ def check_and_repair_dynamodb(args, existing_layer_arn: str, md5_hash: str, laye
                 'collector_version_input': args.collector_version,
                 'md5_hash': md5_hash,
                 'publish_timestamp': datetime.now(timezone.utc).isoformat(), # Use current time for repair timestamp
-                'compatible_runtimes': set(args.runtimes.split()) if args.runtimes else None
+                'compatible_runtimes': args.runtimes.split() if args.runtimes else None
             }
             # Attempt to write the missing record
             write_success = write_metadata_to_dynamodb(metadata)
@@ -535,7 +543,7 @@ def main():
             args.region,
             arch_str,
             args.runtimes,
-            build_tags=build_tags_env # Pass build tags to publish_layer
+            build_tags=build_tags_env
         )
         if layer_arn:
             # Step 5: Make layer public only if explicitly requested
@@ -560,6 +568,7 @@ def main():
                     'collector_version_input': args.collector_version,
                     'md5_hash': md5_hash,
                     'publish_timestamp': datetime.now(timezone.utc).isoformat(),
+                    'public': args.public,  # Track whether the layer is public
                     # Store as a list instead of a set for DynamoDB List (L) type
                     'compatible_runtimes': args.runtimes.split() if args.runtimes else None 
                 }
@@ -579,7 +588,7 @@ def main():
         print(f"Layer with MD5 {md5_hash} already exists: {existing_layer_arn}. Skipping publish.")
         layer_arn = existing_layer_arn # Ensure layer_arn is set to the existing one
         
-        # NEW: Check if the metadata for this existing layer is in DynamoDB and repair if needed
+        # Check if the metadata for this existing layer is in DynamoDB and repair if needed
         check_and_repair_dynamodb(args, existing_layer_arn, md5_hash, layer_version_str)
         # Note: We don't set dynamo_success here, as the goal was just checking/repairing.
         # The summary will correctly reflect 'Reused existing layer'.

@@ -57,43 +57,51 @@ def check_aws_credentials():
     """Check if AWS credentials are configured correctly."""
     click.echo("Checking AWS credentials...")
     
-    # Try to get caller identity
-    process = run_command(
-        ["aws", "sts", "get-caller-identity", "--query", "Account", "--output", "text"],
-        capture_output=True
-    )
-    
-    if process.returncode != 0:
-        click.secho("AWS credentials are not configured correctly:", fg="red", err=True)
-        click.secho(process.stderr, fg="red", err=True)
+    try:
+        # Import boto3 (should be available as it's in the script requirements)
+        import boto3
+        
+        # Create a boto3 STS client
+        sts_client = boto3.client('sts')
+        
+        # Call get_caller_identity directly using boto3
+        response = sts_client.get_caller_identity()
+        
+        # Extract account ID from response
+        account_id = response.get('Account')
+        if account_id:
+            click.secho(f"AWS credentials are configured for account: {account_id}", fg="green")
+            return True
+        else:
+            click.secho("AWS credentials are configured but account ID couldn't be determined.", fg="yellow", err=True)
+            return False
+            
+    except ImportError:
+        click.secho("boto3 is not installed. Please install it: pip install boto3", fg="red", err=True)
         return False
-    
-    account_id = process.stdout.strip()
-    if account_id:
-        click.secho(f"AWS credentials are configured for account: {account_id}", fg="green")
-        return True
-    else:
-        click.secho("AWS credentials are configured but account ID couldn't be determined.", fg="yellow", err=True)
+    except Exception as e:
+        click.secho(f"AWS credentials are not configured correctly: {str(e)}", fg="red", err=True)
         return False
 
 
 def get_aws_region():
-    """Get the current AWS region from AWS CLI configuration."""
+    """Get the current AWS region from boto3 session."""
     try:
-        process = subprocess.run(
-            ["aws", "configure", "get", "region"],
-            capture_output=True,
-            text=True,
-            check=False
-        )
-        if process.returncode == 0 and process.stdout.strip():
-            return process.stdout.strip()
+        import boto3
+        
+        # Get the region from the default session
+        session = boto3.session.Session()
+        region = session.region_name
+        
+        if region:
+            return region
+        else:
+            click.secho("Could not determine AWS region from boto3 session, defaulting to us-east-1", fg="yellow")
+            return "us-east-1"
     except Exception as e:
         click.secho(f"Error getting AWS region: {e}", fg="red", err=True)
-    
-    # Default to us-east-1 if region cannot be determined
-    click.secho("Could not determine AWS region, defaulting to us-east-1", fg="yellow")
-    return "us-east-1"
+        click.secho("Defaulting to us-east-1", fg="yellow")
+        return "us-east-1"
 
 
 DISTRIBUTION_CHOICES = ["default", "minimal", "clickhouse", "full"]

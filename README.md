@@ -205,6 +205,110 @@ The custom layers are built using a two-workflow approach:
    - Publishes the layer to AWS Lambda
    - Makes the layer public
 
+## Architecture Diagram
+
+The following diagram illustrates the caller flow and dependencies in this project:
+
+```mermaid
+flowchart TD
+    %% Main entities with shapes
+    User([User via GitHub Actions UI])
+    GHA[GitHub Workflow: publish-custom-layer-collector.yml]
+    Reusable[Reusable Workflow: custom-layer-publish.yml]
+    BuildScript[build_extension_layer.py]
+    PublishScript[lambda_layer_publisher.py]
+    DistUtil[distribution_utils.py]
+    Lambda[(AWS Lambda Layers)]
+    DynamoDB[(DynamoDB Metadata Store)]
+    Config[config/distributions.yaml]
+    
+    %% Flow connections with labels
+    User -->|Trigger workflow| GHA
+    GHA -->|Build layer| BuildScript
+    GHA -->|Call workflow| Reusable
+    Reusable -->|Publish layer| PublishScript
+    
+    BuildScript -->|Load config| DistUtil
+    DistUtil -->|Read| Config
+    
+    PublishScript -->|Create layer| Lambda
+    PublishScript -->|Store metadata| DynamoDB
+    
+    %% Simple styling that won't break rendering
+    classDef workflow fill:#f96
+    classDef script fill:#9cf
+    classDef resource fill:#fcf
+    classDef user fill:#fff
+    classDef config fill:#cfc
+    
+    class GHA,Reusable workflow
+    class BuildScript,PublishScript,DistUtil script
+    class Lambda,DynamoDB resource
+    class User user
+    class Config config
+```
+
+### Local Development Workflow
+
+For local development and testing, the workflow is simplified:
+
+```mermaid
+flowchart TD
+    %% Main entities with shapes
+    DevUser([Developer on local machine])
+    LocalScript[test-distribution-locally.py]
+    BuildScript[build_extension_layer.py]
+    PublishScript[lambda_layer_publisher.py]
+    DistUtil[distribution_utils.py]
+    Lambda[(AWS Lambda Layers)]
+    DynamoDB[(DynamoDB Metadata Store)]
+    Config[config/distributions.yaml]
+    
+    %% Flow connections with labels
+    DevUser -->|Test locally| LocalScript
+    LocalScript -->|Build layer| BuildScript
+    LocalScript -->|Publish layer| PublishScript
+    
+    BuildScript -->|Load config| DistUtil
+    DistUtil -->|Read| Config
+    
+    PublishScript -->|Create layer| Lambda
+    PublishScript -->|Store metadata| DynamoDB
+    
+    %% Simple styling that won't break rendering
+    classDef script fill:#9cf
+    classDef resource fill:#fcf
+    classDef user fill:#fff
+    classDef config fill:#cfc
+    
+    class BuildScript,PublishScript,DistUtil,LocalScript script
+    class Lambda,DynamoDB resource
+    class DevUser user
+    class Config config
+```
+
+This diagram shows:
+
+1. **User Flows**:
+   - GitHub Actions UI for production layer publishing (inputs: architecture, AWS region, distribution, and making the layer public)
+   - Local development for testing and maintenance
+
+2. **Script Dependencies**:
+   - How the build script uses distribution utilities
+   - How the publishing script interacts with AWS resources
+
+3. **Data Flow**:
+   - Configuration through distributions.yaml
+   - Artifact building and publishing processes
+   - Metadata storage in DynamoDB
+
+4. **Process Steps**:
+   - The main GitHub workflow prepares matrices for build and release
+   - The reusable workflow downloads artifacts and invokes the publishing script with environment variables
+   - Local testing uses the same underlying scripts but with different parameters
+
+The architecture follows a modular design where each component has a specific responsibility, making it easy to maintain and extend.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
