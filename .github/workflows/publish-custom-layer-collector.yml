@@ -201,6 +201,8 @@ jobs:
           UPSTREAM_VERSION: ${{ needs.prepare-environment.outputs.collector_version }}
           BUILD_TAGS_STRING: ${{ needs.prepare-environment.outputs.build_tags_string }}
         run: |
+          echo "Building layer for architecture: ${{ matrix.architecture }} and distribution: ${{ inputs.distribution }}"
+          echo "With release jobs: ${{ needs.prepare-environment.outputs.release_jobs }}"
           mkdir -p ./build
           python tools/scripts/build_extension_layer.py \
             --upstream-repo ${{ inputs.upstream-repo }} \
