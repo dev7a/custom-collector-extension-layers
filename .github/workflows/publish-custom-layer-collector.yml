@@ -210,7 +210,7 @@ jobs:
 
   # Job 3: Release Layer (Matrix Job, uses reusable workflow)
   release-layer:
-    uses: ./.github/workflows/custom-layer-publish.yml
+    uses: ./.github/workflows/r_publish.yml
     needs: [prepare-environment, build-layer] # Depends on release info and built artifacts
     strategy:
       matrix: ${{ fromJSON(needs.prepare-environment.outputs.release_jobs) }}
