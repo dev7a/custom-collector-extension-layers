@@ -85,6 +85,7 @@ jobs:
           # Fetch tools/scripts and config needed for release info
           sparse-checkout: |
             tools/scripts
+            tools/requirements.txt
             config
           sparse-checkout-cone-mode: false
 
