@@ -215,8 +215,10 @@ def spinner(text: str, callback: Callable, color: str = "blue") -> Any:
     Returns:
         The return value from the callback function
     """
+    result = callback()
+    return
 
-    sp = yaspin_func(Spinners.dots, text=text)
+    sp = yaspin_func(Spinners.dots, text=text, color=color)
     sp.start()
 
     try:
@@ -227,20 +229,6 @@ def spinner(text: str, callback: Callable, color: str = "blue") -> Any:
         sp.stop()
         raise e
 
-
-def async_spinner(text: str) -> Any:
-    """Create and start a spinner, returning the spinner object to be stopped later.
-
-    Args:
-        text: Text to display alongside spinner
-
-    Returns:
-        The started yaspin spinner object
-    """
-
-    spnr = yaspin_func(Spinners.dots, text=text)
-    spnr.start()
-    return spnr
 
 
 # ==========================================================================================

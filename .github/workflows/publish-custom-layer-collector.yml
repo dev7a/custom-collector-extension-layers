@@ -167,6 +167,7 @@ jobs:
             aws_regions='["${{ github.event.inputs.aws-region }}"]'
           fi
           echo "release_jobs={\"architecture\": ${architectures}, \"aws_region\": ${aws_regions}}" | tr -d '[:space:]' >> $GITHUB_OUTPUT
+      
 
   # Job 2: Build Layer (Matrix Job)
   build-layer:
