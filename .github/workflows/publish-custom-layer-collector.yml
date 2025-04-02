@@ -214,7 +214,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: collector-${{ matrix.architecture }}.zip
-          path: ./build/collector-${{ matrix.architecture }}.zip
+          path: ./build/collector-${{ matrix.architecture }}-${{ inputs.distribution }}.zip
 
   # Job 3: Release Layer (Matrix Job, uses reusable workflow)
   release-layer:
