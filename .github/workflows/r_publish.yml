@@ -1,4 +1,4 @@
-name: Reusable Workflow for Publishing Lambda Layers
+name: Publisher
 
 on:
   workflow_call:
