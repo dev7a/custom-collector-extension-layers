@@ -216,7 +216,7 @@ def spinner(text: str, callback: Callable, color: str = "blue") -> Any:
         The return value from the callback function
     """
     result = callback()
-    return
+    return result
 
     sp = yaspin_func(Spinners.dots, text=text, color=color)
     sp.start()
