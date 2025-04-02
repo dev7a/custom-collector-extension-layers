@@ -6,7 +6,6 @@ Utility functions for loading and processing the distributions.yaml configuratio
 """
 
 import yaml
-import sys
 from pathlib import Path
 from typing import List, Dict, Set, Optional
 

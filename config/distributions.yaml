@@ -19,6 +19,22 @@ clickhouse:
   buildtags:
     # Only add tags specific to this distribution
     - lambdacomponents.exporter.clickhouse
+exporters:
+  description: "Distribution with all exporters and minimal components"
+  base: minimal # Inherit minimal components
+  buildtags:
+    # Only need to add the exporter.all tag, the hierarchical resolver should handle dependencies
+    - lambdacomponents.exporter.all
+s3export:
+  description: "Minimal + AWS S3 exporter"
+  base: minimal # Inherits from minimal
+  buildtags:
+    - lambdacomponents.exporter.awss3
+signaltometrics:
+  description: "Minimal + Signal to Metrics connector"
+  base: minimal # Inherits from minimal
+  buildtags:
+    - lambdacomponents.connector.signaltometrics
 full:
   description: "All available upstream and custom components"
   buildtags:

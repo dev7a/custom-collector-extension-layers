@@ -149,8 +149,17 @@ If you are adding entirely new functionality (like a new exporter or processor):
     //go:build lambdacomponents.custom && (lambdacomponents.all || lambdacomponents.{component-type}.all || lambdacomponents.{component-type}.{component-name})
     ```
     Replace `{component-type}` and `{component-name}` accordingly (e.g., `lambdacomponents.exporter.myexporter`).
-3.  Add documentation for your new component in the `docs/` directory.
-4.  Update the "Custom Components" section of this README.md.
+3.  **Declare Dependencies (If Applicable):** If your component imports packages from Go modules that are *not* already part of the core OpenTelemetry Collector or the base `opentelemetry-lambda` dependencies, you must declare them. Edit `config/component_dependencies.yaml` and add an entry mapping your component's primary build tag (e.g., `lambdacomponents.exporter.myexporter`) to a list containing the required Go module path(s):
+    ```yaml
+    dependencies:
+      # ... existing entries ...
+      lambdacomponents.exporter.myexporter:
+        - github.com/my-org/my-dependency-module/v2
+        # - github.com/another-org/another-module # Add more if needed
+    ```
+    The build script will use this mapping to run `go get` for these modules automatically. You do *not* need to add dependencies already provided by the upstream project (like `go.opentelemetry.io/collector/...`).
+4.  Add documentation for your new component in the `docs/` directory.
+5.  Update the "Custom Components" section of this README.md.
 
 **Defining a New Distribution Preset:**
 

@@ -12,7 +12,6 @@ by querying the DynamoDB metadata store.
 
 import argparse
 import sys
-from decimal import Decimal
 
 # Try importing boto3
 try:
@@ -23,67 +22,34 @@ except ImportError:
     print("Error: boto3 library not found. Please install it: pip install boto3", file=sys.stderr)
     sys.exit(1)
 
-# DynamoDB Table Name (as per design doc)
-DYNAMODB_TABLE_NAME = 'custom-collector-extension-layers'
-
-# Helper to convert DynamoDB types (like Decimal) to standard Python types
-def deserialize_item(item: dict) -> dict:
-    """Deserialize DynamoDB item removing Decimals and Sets."""
-    cleaned_item = {}
-    for key, value in item.items():
-        if isinstance(value, Decimal):
-            # Convert Decimal to int if it's whole, otherwise float
-            cleaned_item[key] = int(value) if value % 1 == 0 else float(value)
-        elif isinstance(value, set):
-             # Convert set to list for broader compatibility (e.g., JSON)
-             # Sort for consistent output if needed, though order might not matter here
-             cleaned_item[key] = list(value)
-        else:
-            cleaned_item[key] = value
-    return cleaned_item
+# Import DynamoDB utilities
+from otel_layer_utils.dynamodb_utils import (
+    DYNAMODB_TABLE_NAME,
+    query_by_distribution
+)
 
 def generate_notes(distribution: str, collector_version: str, build_tags: str):
     """Queries DynamoDB and generates markdown release notes."""
     
-    # Use default region resolution, but let AWS credentials handle the endpoint
-    dynamodb = boto3.resource('dynamodb') 
-    table = dynamodb.Table(DYNAMODB_TABLE_NAME)
-    items = []
-    last_evaluated_key = None
-
-    print(f"Querying DynamoDB table '{DYNAMODB_TABLE_NAME}' for pk={distribution}...", file=sys.stderr)
+    print(f"Querying DynamoDB table '{DYNAMODB_TABLE_NAME}' for distribution={distribution} using GSI sk-pk-index...", file=sys.stderr)
     
-    # Query by PK (distribution)
+    # Use the GSI to query directly by distribution (sk)
     try:
-        while True:
-            query_args = {
-                'KeyConditionExpression': Key('pk').eq(distribution)
-            }
-            if last_evaluated_key:
-                query_args['ExclusiveStartKey'] = last_evaluated_key
-                
-            response = table.query(**query_args)
-            items.extend(response.get('Items', []))
-            
-            last_evaluated_key = response.get('LastEvaluatedKey')
-            if not last_evaluated_key:
-                break # Exit the pagination loop
-                
+        items = query_by_distribution(distribution)
+        print(f"Found {len(items)} raw items for distribution. Filtering for collector version '{collector_version}'...", file=sys.stderr)
+        
+        # Filter results in Python for the specific collector version
+        filtered_items = [
+            item for item in items
+            if item.get('collector_version_input') == collector_version
+        ]
     except ClientError as e:
-        print(f"Error: Failed querying DynamoDB for distribution '{distribution}': {e}", file=sys.stderr)
+        print(f"Error: Failed querying DynamoDB GSI for distribution '{distribution}': {e}", file=sys.stderr)
         # Depending on requirements, might want to exit or return partial notes
         return f"# Error\n\nFailed to query layer metadata from DynamoDB: {e}"
     except Exception as e:
         print(f"Error: An unexpected error occurred during DynamoDB query: {e}", file=sys.stderr)
         return f"# Error\n\nAn unexpected error occurred while querying DynamoDB: {e}"
-
-    print(f"Found {len(items)} raw items for distribution. Filtering for collector version '{collector_version}'...", file=sys.stderr)
-
-    # Filter results in Python for the specific collector version
-    filtered_items = [
-        deserialize_item(item) for item in items
-        if item.get('collector_version_input') == collector_version
-    ]
 
     print(f"Found {len(filtered_items)} items matching the collector version.", file=sys.stderr)
 

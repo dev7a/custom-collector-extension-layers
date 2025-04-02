@@ -71,11 +71,11 @@ jobs:
       skip_publish: ${{ steps.publish-layer.outputs.skip_publish }}
 
     steps:
-      - name: Checkout repository for scripts
+      - name: Checkout repository for tools/scripts
         uses: actions/checkout@v4
         with:
           sparse-checkout: |
-            scripts
+            tools/scripts
           sparse-checkout-cone-mode: false
 
       - name: Download built layer
@@ -106,4 +106,4 @@ jobs:
           PY_PUBLIC: ${{ inputs.make-public }}
         run: |
           # Call the script directly - it will read args from environment variables
-          python3 scripts/lambda_layer_publisher.py
+          python3 tools/scripts/lambda_layer_publisher.py

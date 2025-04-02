@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       architecture:
-        description: 'Architecture of the layer to be published'
+        description: 'Architecture of the layer(s) to be built/published'
         required: true
         type: choice
         options:
@@ -33,17 +33,15 @@ on:
           - us-west-2
         default: all
       distribution:
-        description: 'Select a predefined set of components or choose custom'
+        description: 'Select a predefined set of components (from config/distributions.yaml)'
         required: false
         type: choice
         default: 'default'
-        options:
+        options: # NOTE: This list MUST be kept in sync with config/distributions.yaml manually
           - default
           - minimal
           - clickhouse
           - full
-          # - custom # Removed custom option
-      # build-tags input removed
       upstream-repo:
         description: 'Upstream OpenTelemetry Lambda repository'
         required: false
@@ -57,127 +55,74 @@ on:
       release-group:
         description: 'Release group (e.g., prod, beta, alpha). Affects release naming. Defaults to "prod".'
         required: false
-        type: string # Changed from choice to string
+        type: string
         default: 'prod'
 
-# Add permissions required to match layer-publish.yml AND for release creation
+# Add permissions required for OIDC, creating releases, etc.
 permissions:
   id-token: write
-  contents: write 
+  contents: write
 
 jobs:
-  prepare-build-jobs:
+  # Job 1: Prepare Environment, Determine Version, Get Release Info, Prepare Matrices
+  prepare-environment:
     runs-on: ubuntu-latest
     outputs:
-      build_jobs: ${{ steps.prepare-build-jobs.outputs.build_jobs }}
-    steps:
-      - id: prepare-build-jobs
-        name: Prepare Build Jobs
-        run: |
-          architectures=''
-          if [ "${{ github.event.inputs.architecture }}" == 'all' ]; then
-            architectures='["amd64", "arm64"]'
-          else
-            architectures='["${{ github.event.inputs.architecture }}"]'
-          fi
-          echo "build_jobs={\"architecture\": ${architectures}}" | tr -d '[:space:]' >> $GITHUB_OUTPUT
-
-  build-layer:
-    needs: prepare-build-jobs
-    runs-on: ubuntu-latest
-    strategy:
-      matrix: ${{ fromJSON(needs.prepare-build-jobs.outputs.build_jobs) }}
+      # Version and Release Info
+      collector_version: ${{ steps.determine-version.outputs.collector_version }}
+      release_tag: ${{ steps.release_info.outputs.tag }}
+      release_title: ${{ steps.release_info.outputs.title }}
+      build_tags_string: ${{ steps.release_info.outputs.build_tags }} # Comma-separated string
+      distribution: ${{ steps.release_info.outputs.distribution }}
+      release_group: ${{ steps.release_info.outputs.release_group }}
+      # Matrices for subsequent jobs
+      build_jobs: ${{ steps.prepare-matrices.outputs.build_jobs }}
+      release_jobs: ${{ steps.prepare-matrices.outputs.release_jobs }}
     steps:
       - name: Checkout This Repo
         uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
         with:
-          go-version: '~1.21.9'
+          # Fetch tools/scripts and config needed for release info
+          sparse-checkout: |
+            tools/scripts
+            config
+          sparse-checkout-cone-mode: false
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x' # Use a recent Python 3 version
-
-      - name: Install PyYAML dependency for build script
-        run: python -m pip install PyYAML
-
-      - name: Build Layer using build_extension_layer.py
-        run: |
-          mkdir -p ./build
-          # Python script is already executable, no chmod needed
-          python3 ./scripts/build_extension_layer.py \
-            --upstream-repo ${{ inputs.upstream-repo }} \
-            --upstream-ref ${{ inputs.upstream-ref }} \
-            --distribution ${{ inputs.distribution }} \
-            --arch ${{ matrix.architecture }} \
-            --output-dir ./build
-
-      - name: Upload Collector Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: collector-${{ matrix.architecture }}.zip
-          path: ./build/collector-${{ matrix.architecture }}.zip
-
-  prepare-release-jobs:
-    needs: build-layer
-    runs-on: ubuntu-latest
-    outputs:
-      release_jobs: ${{ steps.prepare-release-jobs.outputs.release_jobs }}
-      # Outputs from release_info step
-      collector_version: ${{ steps.release_info.outputs.collector_version }}
-      release_tag: ${{ steps.release_info.outputs.tag }}
-      release_title: ${{ steps.release_info.outputs.title }}
-      build_tags: ${{ steps.release_info.outputs.build_tags }}
-      distribution: ${{ steps.release_info.outputs.distribution }}
-      release_group: ${{ steps.release_info.outputs.release_group }}
-    steps:
-      # Checkout upstream repo to get version information
       - name: Checkout Upstream Repo
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.upstream-repo }}
           ref: ${{ inputs.upstream-ref }}
-          path: upstream
-          fetch-depth: 1
+          path: upstream # Checkout to ./upstream directory
+          fetch-depth: 1 # Only need the latest commit for version info
 
-      - id: prepare-release-jobs # Step to prepare matrix for release-layer job
-        name: Prepare Release Jobs Matrix
+      - name: Determine Upstream Collector Version via Make
+        id: determine-version
+        working-directory: ./upstream/collector # Run make in the collector subdir
         run: |
-          architectures=''
-          if [ "${{ github.event.inputs.architecture }}" == 'all' ]; then
-            architectures='["amd64", "arm64"]'
-          else
-            architectures='["${{ github.event.inputs.architecture }}"]'
+          # Check if Makefile exists
+          if [ ! -f "Makefile" ]; then
+            echo "::error::Makefile not found in upstream/collector directory. Cannot determine version."
+            exit 1
           fi
-          aws_regions=''
-          if [ "${{ github.event.inputs.aws-region }}" == 'all' ]; then
-            aws_regions='["ca-central-1", "ca-west-1", "eu-central-1", "eu-central-2", "eu-north-1", "eu-south-1", "eu-south-2", "eu-west-1", "eu-west-2", "eu-west-3", "us-east-1", "us-east-2", "us-west-2"]'
-          else
-            aws_regions='["${{ github.event.inputs.aws-region }}"]'
-          fi
-          echo "release_jobs={\"architecture\": ${architectures}, \"aws_region\": ${aws_regions}}" | tr -d '[:space:]' >> $GITHUB_OUTPUT
 
-      - name: Read collector version from Upstream
-        id: collector-version
-        working-directory: ./upstream
-        run: |
-          if [ -f "./collector/VERSION" ]; then
-            COLLECTOR_VERSION=$(cat ./collector/VERSION)
-            echo "Found upstream VERSION file: $COLLECTOR_VERSION"
-          else
-            echo "Upstream VERSION file not found, using fallback version"
-            COLLECTOR_VERSION="v0.119.0" # Fallback
-          fi
-          echo "Collector version: $COLLECTOR_VERSION"
-          # Output the raw version for the release_info step below
-          echo "version=${COLLECTOR_VERSION}" >> $GITHUB_OUTPUT
+          echo "Running 'make set-otelcol-version'..."
+          make set-otelcol-version
 
-      # --- Steps moved from create-github-release job ---
-      - name: Checkout code for release info script # Need checkout in this job now
-        uses: actions/checkout@v4
+          # Check if VERSION file was created
+          if [ ! -f "VERSION" ]; then
+            echo "::error::VERSION file not created by 'make set-otelcol-version'."
+            exit 1
+          fi
+
+          COLLECTOR_VERSION=$(cat VERSION)
+          if [ -z "$COLLECTOR_VERSION" ]; then
+            echo "::error::VERSION file is empty after running 'make set-otelcol-version'."
+            exit 1
+          fi
+
+          echo "Determined Collector Version: $COLLECTOR_VERSION"
+          echo "collector_version=$COLLECTOR_VERSION" >> $GITHUB_OUTPUT
 
       - name: Setup Python for release info script
         uses: actions/setup-python@v5
@@ -192,33 +137,97 @@ jobs:
         env:
           # Pass inputs to the script via environment variables
           DISTRIBUTION: ${{ github.event.inputs.distribution }}
-          # CUSTOM_BUILD_TAGS_INPUT removed
-          INPUT_COLLECTOR_VERSION: ${{ steps.collector-version.outputs.version }} # Use output from previous step
-          RELEASE_GROUP: ${{ github.event.inputs.release-group }} # Pass release group input
-          DIST_YAML_PATH: config/distributions.yaml
+          INPUT_COLLECTOR_VERSION: ${{ steps.determine-version.outputs.collector_version }} # Use output from previous step
+          RELEASE_GROUP: ${{ github.event.inputs.release-group }}
+          DIST_YAML_PATH: config/distributions.yaml # Relative to repo root
         run: |
-          python scripts/get_release_info.py
-      # --- End of moved steps ---
+          python tools/scripts/get_release_info.py
 
-  release-layer:
-    # This refers to the reusable workflow within THIS repository
-    uses: ./.github/workflows/custom-layer-publish.yml
-    needs: prepare-release-jobs
+      - id: prepare-matrices # Step to prepare matrices for build and release jobs
+        name: Prepare Build and Release Job Matrices
+        run: |
+          # Build Matrix (Architectures)
+          architectures=''
+          if [ "${{ github.event.inputs.architecture }}" == 'all' ]; then
+            architectures='["amd64", "arm64"]'
+          else
+            architectures='["${{ github.event.inputs.architecture }}"]'
+          fi
+          echo "build_jobs={\"architecture\": ${architectures}}" | tr -d '[:space:]' >> $GITHUB_OUTPUT
+
+          # Release Matrix (Architectures and Regions)
+          aws_regions=''
+          if [ "${{ github.event.inputs.aws-region }}" == 'all' ]; then
+            aws_regions='["ca-central-1", "ca-west-1", "eu-central-1", "eu-central-2", "eu-north-1", "eu-south-1", "eu-south-2", "eu-west-1", "eu-west-2", "eu-west-3", "us-east-1", "us-east-2", "us-west-2"]'
+          else
+            aws_regions='["${{ github.event.inputs.aws-region }}"]'
+          fi
+          echo "release_jobs={\"architecture\": ${architectures}, \"aws_region\": ${aws_regions}}" | tr -d '[:space:]' >> $GITHUB_OUTPUT
+
+  # Job 2: Build Layer (Matrix Job)
+  build-layer:
+    needs: prepare-environment # Depends on version, tags, and build matrix
+    runs-on: ubuntu-latest
     strategy:
-      matrix: ${{ fromJSON(needs.prepare-release-jobs.outputs.release_jobs) }}
+      matrix: ${{ fromJSON(needs.prepare-environment.outputs.build_jobs) }}
+    steps:
+      - name: Checkout This Repo
+        uses: actions/checkout@v4 # Full checkout needed for build script and components
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '~1.21.9' # Keep Go version consistent
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install PyYAML dependency for build script
+        run: python -m pip install PyYAML
+
+      - name: Build Layer using build_extension_layer.py
+        env:
+          # Pass determined version and tags to the script
+          UPSTREAM_VERSION: ${{ needs.prepare-environment.outputs.collector_version }}
+          BUILD_TAGS_STRING: ${{ needs.prepare-environment.outputs.build_tags_string }}
+        run: |
+          mkdir -p ./build
+          python tools/scripts/build_extension_layer.py \
+            --upstream-repo ${{ inputs.upstream-repo }} \
+            --upstream-ref ${{ inputs.upstream-ref }} \
+            --distribution ${{ inputs.distribution }} \
+            --arch ${{ matrix.architecture }} \
+            --output-dir ./build
+            # Version and build tags are passed via ENV
+
+      - name: Upload Collector Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: collector-${{ matrix.architecture }}.zip
+          path: ./build/collector-${{ matrix.architecture }}.zip
+
+  # Job 3: Release Layer (Matrix Job, uses reusable workflow)
+  release-layer:
+    uses: ./.github/workflows/custom-layer-publish.yml
+    needs: [prepare-environment, build-layer] # Depends on release info and built artifacts
+    strategy:
+      matrix: ${{ fromJSON(needs.prepare-environment.outputs.release_jobs) }}
     with:
       artifact-name: collector-${{ matrix.architecture }}.zip
       layer-name: otel-ext-layer
       architecture: ${{ matrix.architecture }}
       runtimes: "nodejs18.x nodejs20.x nodejs22.x java17 java21 python3.9 python3.10 python3.11 python3.12 python3.13 dotnet6 dotnet8 provided.al2 provided.al2023"
-      release-group: ${{ needs.prepare-release-jobs.outputs.release_group }} # Use prepare job output
+      release-group: ${{ needs.prepare-environment.outputs.release_group }}
       aws_region: ${{ matrix.aws_region }}
-      distribution: ${{ needs.prepare-release-jobs.outputs.distribution }} # Use prepare job output
-      collector-version: ${{ needs.prepare-release-jobs.outputs.collector_version }} # Use prepare job output
-      build-tags: ${{ needs.prepare-release-jobs.outputs.build_tags }} # Use prepare job output
-      make-public: true # Set to true for production releases
+      distribution: ${{ needs.prepare-environment.outputs.distribution }}
+      collector-version: ${{ needs.prepare-environment.outputs.collector_version }}
+      build-tags: ${{ needs.prepare-environment.outputs.build_tags_string }} # Pass the string
+      make-public: true # Assuming production releases are public
     secrets: inherit
 
+  # Job 4: Generate Reports
   generate-layers-report:
     needs: release-layer # Depends on successful layer publishing
     runs-on: ubuntu-latest
@@ -231,7 +240,7 @@ jobs:
         with:
           python-version: '3.9'
           cache: 'pip'
-          cache-dependency-path: 'scripts/generate-layers-report.py'
+          cache-dependency-path: 'tools/scripts/generate_layers_report.py'
 
       - name: Install dependencies
         run: |
@@ -249,14 +258,14 @@ jobs:
       - name: Generate Layers Report
         run: |
           # Generate a distribution-specific report
-          python scripts/generate-layers-report.py \
+          python tools/scripts/generate_layers_report.py \
             --pattern "*-${{ inputs.distribution }}*" \
             --output "LAYERS-${{ inputs.distribution }}.md"
-          
+
           # Also generate a full report
-          python scripts/generate-layers-report.py \
+          python tools/scripts/generate_layers_report.py \
             --output "LAYERS-ALL.md"
-      
+
       - name: Upload Layer Reports
         uses: actions/upload-artifact@v4
         with:
@@ -265,26 +274,25 @@ jobs:
             LAYERS-*.md
           retention-days: 90
 
-  # New Job for creating GitHub Release
+  # Job 5: Create GitHub Release
   create-github-release:
-    needs: [prepare-release-jobs, release-layer, generate-layers-report] # Run after publishing and report generation
+    needs: [prepare-environment, release-layer, generate-layers-report] # Depends on release info, publishing, and reports
     runs-on: ubuntu-latest
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python # Setup python again for generate_release_notes
+      - name: Setup Python for release notes
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9' # Match version used elsewhere
+          python-version: '3.9'
           cache: 'pip'
-          cache-dependency-path: 'scripts/generate_release_notes.py' # Cache based on script
+          cache-dependency-path: 'tools/scripts/generate_release_notes.py'
 
-      - name: Install dependencies # Install boto3 again for generate_release_notes
+      - name: Install dependencies for release notes
         run: |
           python -m pip install --upgrade pip
-          python -m pip install boto3 # PyYAML no longer needed here
+          python -m pip install boto3
 
       - name: Configure AWS credentials (for release notes script)
         uses: aws-actions/configure-aws-credentials@v4
@@ -294,25 +302,20 @@ jobs:
           aws-region: us-east-1 # Use a default region for querying DynamoDB
           mask-aws-account-id: true
 
-      # Determine Release Info step was moved to prepare-release-jobs
-
       - name: Generate Release Body
         id: generate_notes
         env: # Pass necessary info from prepare job outputs
-          DISTRIBUTION: ${{ needs.prepare-release-jobs.outputs.distribution }}
-          COLLECTOR_VERSION: ${{ needs.prepare-release-jobs.outputs.collector_version }}
-          BUILD_TAGS: ${{ needs.prepare-release-jobs.outputs.build_tags }}
-          RELEASE_GROUP: ${{ needs.prepare-release-jobs.outputs.release_group }}
+          DISTRIBUTION: ${{ needs.prepare-environment.outputs.distribution }}
+          COLLECTOR_VERSION: ${{ needs.prepare-environment.outputs.collector_version }}
+          BUILD_TAGS: ${{ needs.prepare-environment.outputs.build_tags_string }}
+          RELEASE_GROUP: ${{ needs.prepare-environment.outputs.release_group }}
         run: |
-          # Note: generate_release_notes.py might need updates to use RELEASE_GROUP
-          python scripts/generate_release_notes.py \
+          python tools/scripts/generate_release_notes.py \
             --distribution "$DISTRIBUTION" \
             --collector-version "$COLLECTOR_VERSION" \
             --build-tags "$BUILD_TAGS" \
             > release_notes.md
           echo "Generated release_notes.md"
-          # Optional: Cat the file for debugging
-          # cat release_notes.md
 
       - name: Download Layer Artifacts (amd64)
         uses: actions/download-artifact@v4
@@ -331,12 +334,10 @@ jobs:
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Alternative if gh needs GH_TOKEN
         run: |
-          echo "Creating release ${{ needs.prepare-release-jobs.outputs.release_tag }}"
-          # Use --notes-file and shell glob (worked in the successful run)
-          gh release create "${{ needs.prepare-release-jobs.outputs.release_tag }}" \
-            --title "${{ needs.prepare-release-jobs.outputs.release_title }}" \
+          echo "Creating release ${{ needs.prepare-environment.outputs.release_tag }}"
+          gh release create "${{ needs.prepare-environment.outputs.release_tag }}" \
+            --title "${{ needs.prepare-environment.outputs.release_title }}" \
             --notes-file release_notes.md \
-            ./release-assets/*.zip # Upload all zip files in the assets dir
+            ./release-assets/*.zip
           echo "Release created successfully."

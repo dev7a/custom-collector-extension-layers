@@ -13,20 +13,23 @@ by fetching metadata from a DynamoDB table.
 import argparse
 import fnmatch
 from datetime import datetime
-from decimal import Decimal # Import Decimal for DynamoDB number handling
 from typing import Dict, List
 import sys
 # Try importing boto3
 try:
     import boto3
     from botocore.exceptions import ClientError
-    from boto3.dynamodb.conditions import Key
+    from boto3.dynamodb.conditions import Key, Attr
 except ImportError:
     print("boto3 library not found. Please install it: pip install boto3", file=sys.stderr)
     sys.exit(1)
 
-# DynamoDB Table Name (as per design doc)
-DYNAMODB_TABLE_NAME = 'custom-collector-extension-layers'
+# Import DynamoDB utilities
+from otel_layer_utils.dynamodb_utils import (
+    DYNAMODB_TABLE_NAME,
+    query_by_distribution,
+    scan_items
+)
 
 # Known distributions to query (should match what's used as PK)
 DISTRIBUTIONS = ["default", "minimal", "clickhouse", "clickhouse-otlphttp", "full", "custom"]
@@ -44,40 +47,35 @@ def fetch_layers_from_dynamodb(pattern: str = None) -> List[Dict]:
     Optionally filters items based on a glob pattern against the layer_arn.
     """
     all_items = []
-    dynamodb = boto3.resource('dynamodb') # Use default region resolution
-    table = dynamodb.Table(DYNAMODB_TABLE_NAME)
     
     print(f"Querying DynamoDB table '{DYNAMODB_TABLE_NAME}' for layer metadata...")
 
-    for distribution in DISTRIBUTIONS:
-        print(f"Querying for distribution: {distribution}")
-        try:
-            last_evaluated_key = None
-            while True:
-                query_args = {
-                    'KeyConditionExpression': Key('pk').eq(distribution)
-                }
-                if last_evaluated_key:
-                    query_args['ExclusiveStartKey'] = last_evaluated_key
-                    
-                response = table.query(**query_args)
-                
-                items = response.get('Items', [])
-                all_items.extend(items)
-                
-                last_evaluated_key = response.get('LastEvaluatedKey')
-                if not last_evaluated_key:
-                    break # Exit the pagination loop for this distribution
-                    
-        except ClientError as e:
-            print(f"Error querying DynamoDB for distribution '{distribution}': {e}", file=sys.stderr)
-            # Continue to next distribution or handle error as needed
-        except Exception as e:
-            print(f"An unexpected error occurred during DynamoDB query: {e}", file=sys.stderr)
+    # If no pattern is provided, we'll get all items
+    # If pattern is a specific distribution pattern, we can use query by distribution
+    if pattern and pattern.startswith('*') and pattern.endswith('*') and '*' not in pattern[1:-1]:
+        # This is likely just a distribution filter (e.g., "*clickhouse*")
+        distribution = pattern[1:-1]  # Remove the asterisks
+        if distribution in DISTRIBUTIONS:
+            print(f"Using GSI 'sk-pk-index' to query for distribution: {distribution}")
+            try:
+                all_items = query_by_distribution(distribution)
+                print(f"Retrieved {len(all_items)} items for distribution '{distribution}'.")
+                return all_items
+            except Exception as e:
+                print(f"Error querying for distribution '{distribution}': {e}", file=sys.stderr)
+                # Fall back to scan on error
+    
+    # Otherwise, use scan for more complex patterns or all items
+    print("Using scan operation to retrieve all items")
+    try:
+        # Get all items (already deserialized)
+        all_items = scan_items()
+    except Exception as e:
+        print(f"Error scanning DynamoDB table: {e}", file=sys.stderr)
 
     print(f"Retrieved {len(all_items)} total items from DynamoDB.")
     
-    # Optional filtering based on pattern (applied after fetching)
+    # Optional filtering based on pattern
     if pattern:
         filtered_items = [
             item for item in all_items 
@@ -89,20 +87,6 @@ def fetch_layers_from_dynamodb(pattern: str = None) -> List[Dict]:
         return all_items
 
 
-# Helper to convert DynamoDB types (like Decimal) to standard Python types
-def deserialize_item(item: Dict) -> Dict:
-    cleaned_item = {}
-    for key, value in item.items():
-        if isinstance(value, Decimal):
-            # Convert Decimal to int if it's whole, otherwise float
-            cleaned_item[key] = int(value) if value % 1 == 0 else float(value)
-        elif isinstance(value, set):
-             # Convert set to list for broader compatibility (e.g., JSON)
-             cleaned_item[key] = sorted(list(value)) # Sort for consistent output
-        else:
-            cleaned_item[key] = value
-    return cleaned_item
-
 def process_dynamodb_items(items: List[Dict]) -> Dict:
     """
     Process the list of items fetched from DynamoDB and group them by 
@@ -110,9 +94,8 @@ def process_dynamodb_items(items: List[Dict]) -> Dict:
     """
     layers_by_dist_arch = {}
     
-    for raw_item in items:
-        item = deserialize_item(raw_item) # Clean up DynamoDB types
-        
+    for item in items:
+        # Items are already deserialized by our utility functions
         distribution = item.get('distribution', 'unknown')
         architecture = item.get('architecture', 'unknown')
         region = item.get('region', 'unknown')
