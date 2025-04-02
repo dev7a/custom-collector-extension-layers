@@ -238,14 +238,14 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.13'
           cache: 'pip'
-          cache-dependency-path: 'tools/scripts/generate_layers_report.py'
+          cache-dependency-path: 'tools/requirements.txt'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install boto3
+          python -m pip install -r tools/requirements.txt
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4

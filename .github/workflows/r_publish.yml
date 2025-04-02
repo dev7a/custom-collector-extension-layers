@@ -71,6 +71,17 @@ jobs:
       skip_publish: ${{ steps.publish-layer.outputs.skip_publish }}
 
     steps:
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: 'tools/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r tools/requirements.txt
       - name: Checkout repository for tools/scripts
         uses: actions/checkout@v4
         with:
