@@ -9,16 +9,19 @@ import yaml
 from pathlib import Path
 from typing import List, Dict, Set, Optional
 
+
 class DistributionError(Exception):
     """Custom exception for distribution processing errors."""
+
     pass
+
 
 def load_distributions(yaml_path: Path) -> Dict:
     """Loads distribution data from the specified YAML file."""
     if not yaml_path.is_file():
         raise DistributionError(f"Distribution YAML file not found at {yaml_path}")
     try:
-        with open(yaml_path, 'r') as f:
+        with open(yaml_path, "r") as f:
             distributions_data = yaml.safe_load(f)
         if not distributions_data:
             raise DistributionError(f"{yaml_path} is empty or invalid.")
@@ -28,10 +31,9 @@ def load_distributions(yaml_path: Path) -> Dict:
     except Exception as e:
         raise DistributionError(f"Error reading {yaml_path}: {e}")
 
+
 def resolve_build_tags(
-    distribution_name: str,
-    distributions_data: Dict,
-    visited: Optional[Set[str]] = None
+    distribution_name: str, distributions_data: Dict, visited: Optional[Set[str]] = None
 ) -> List[str]:
     """
     Resolves the final list of build tags for a given distribution,
@@ -53,11 +55,15 @@ def resolve_build_tags(
         visited = set()
 
     if distribution_name in visited:
-        raise DistributionError(f"Circular dependency detected involving distribution: {distribution_name}")
+        raise DistributionError(
+            f"Circular dependency detected involving distribution: {distribution_name}"
+        )
 
     dist_info = distributions_data.get(distribution_name)
     if dist_info is None:
-        raise DistributionError(f"Distribution '{distribution_name}' not found in configuration.")
+        raise DistributionError(
+            f"Distribution '{distribution_name}' not found in configuration."
+        )
 
     visited.add(distribution_name)
 
@@ -66,20 +72,28 @@ def resolve_build_tags(
 
     if base_name:
         if not isinstance(base_name, str):
-             raise DistributionError(f"Invalid 'base' value for distribution '{distribution_name}': Must be a string.")
+            raise DistributionError(
+                f"Invalid 'base' value for distribution '{distribution_name}': Must be a string."
+            )
         # Recursively resolve base tags
         try:
-            base_tags_list = resolve_build_tags(base_name, distributions_data, visited.copy())
+            base_tags_list = resolve_build_tags(
+                base_name, distributions_data, visited.copy()
+            )
             base_tags = set(base_tags_list)
         except DistributionError as e:
-             # Add context to the error message
-             raise DistributionError(f"Error resolving base '{base_name}' for distribution '{distribution_name}': {e}")
+            # Add context to the error message
+            raise DistributionError(
+                f"Error resolving base '{base_name}' for distribution '{distribution_name}': {e}"
+            )
 
     # Get tags specific to this distribution
     current_tags_list = dist_info.get("buildtags", [])
     if not isinstance(current_tags_list, list):
-         raise DistributionError(f"Invalid 'buildtags' value for distribution '{distribution_name}': Must be a list.")
-         
+        raise DistributionError(
+            f"Invalid 'buildtags' value for distribution '{distribution_name}': Must be a list."
+        )
+
     current_tags: Set[str] = set(current_tags_list)
 
     # Merge unique tags: base tags + current tags
