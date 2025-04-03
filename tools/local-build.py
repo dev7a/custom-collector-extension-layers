@@ -515,15 +515,15 @@ def main(
             architecture,
             "--output-dir",
             str(build_dir),
+            # Pass version and tags as command line arguments
+            "--upstream-version",
+            upstream_version,
+            "--build-tags",
+            build_tags_string,
         ]
-        # Pass version and tags via environment
-        build_env = {
-            "UPSTREAM_VERSION": upstream_version,
-            "BUILD_TAGS_STRING": build_tags_string,
-        }
 
         # Run build script (don't capture output by default, let it stream)
-        run_command(build_cmd, env=build_env)
+        run_command(build_cmd)
 
         layer_file = build_dir / f"collector-{architecture}-{distribution}.zip"
         if not layer_file.exists():

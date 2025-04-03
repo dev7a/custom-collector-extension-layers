@@ -188,10 +188,6 @@ jobs:
           python -m pip install -r tools/requirements.txt
   
       - name: Build Layer using build_extension_layer.py
-        env:
-          # Pass determined version and tags to the script
-          UPSTREAM_VERSION: ${{ needs.prepare-environment.outputs.collector_version }}
-          BUILD_TAGS_STRING: ${{ needs.prepare-environment.outputs.build_tags_string }}
         run: |
           echo "Building layer for architecture: ${{ matrix.architecture }} and distribution: ${{ github.event.inputs.distribution }}"
           echo "With release jobs: ${{ needs.prepare-environment.outputs.release_jobs }}"
@@ -201,8 +197,9 @@ jobs:
             --upstream-ref ${{ github.event.inputs.upstream-ref }} \
             --distribution ${{ github.event.inputs.distribution }} \
             --arch ${{ matrix.architecture }} \
-            --output-dir ./build
-            # Version and build tags are passed via ENV
+            --upstream-version ${{ needs.prepare-environment.outputs.collector_version }} \
+            --build-tags ${{ needs.prepare-environment.outputs.build_tags_string }} \
+            --output-dir ./build 
 
       - name: Upload Collector Artifact
         uses: actions/upload-artifact@v4
