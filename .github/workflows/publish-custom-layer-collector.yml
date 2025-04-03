@@ -147,27 +147,16 @@ jobs:
         run: |
           python tools/scripts/get_release_info.py
 
-      - id: prepare-matrices # Step to prepare matrices for build and release jobs
+      - id: prepare-matrices
         name: Prepare Build and Release Job Matrices
         run: |
-          # Build Matrix (Architectures)
-          architectures=''
-          if [ "${{ github.event.inputs.architecture }}" == 'all' ]; then
-            architectures='["amd64", "arm64"]'
-          else
-            architectures='["${{ github.event.inputs.architecture }}"]'
-          fi
-          echo "build_jobs={\"architecture\": ${architectures}}"' >> $GITHUB_OUTPUT
-
-          # Release Matrix (Architectures and Regions)
-          aws_regions=''
-          if [ "${{ github.event.inputs.aws-region }}" == 'all' ]; then
-            aws_regions='["ca-central-1", "ca-west-1", "eu-central-1", "eu-central-2", "eu-north-1", "eu-south-1", "eu-south-2", "eu-west-1", "eu-west-2", "eu-west-3", "us-east-1", "us-east-2", "us-west-2"]'
-          else
-            aws_regions='["${{ github.event.inputs.aws-region }}"]'
-          fi
-          echo "release_jobs={\"architecture\": ${architectures}, \"aws_region\": ${aws_regions}}"' >> $GITHUB_OUTPUT
-      
+          # Use Python script to generate matrices
+          python tools/scripts/prepare_matrices.py \
+            --architecture "${{ github.event.inputs.architecture }}" \
+            --aws-region "${{ github.event.inputs.aws-region }}"
+          
+          # Debug output
+          echo "Matrices prepared using Python script"
 
   # Job 2: Build Layer (Matrix Job)
   build-layer:
