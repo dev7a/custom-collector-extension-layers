@@ -22,43 +22,24 @@ Sets GitHub Actions outputs:
 
 import os
 import sys
-
-# import yaml # No longer needed directly
 from pathlib import Path
-
-# Assuming otel_layer_utils is now under scripts/
+from otel_layer_utils.github_utils import set_github_output
 from otel_layer_utils.distribution_utils import (
     load_distributions,
     resolve_build_tags,
     DistributionError,
 )
 
-# Get the GitHub Actions output file path. Fail if not set.
+# Get Github Output file path
 GITHUB_OUTPUT_FILE = os.environ.get("GITHUB_OUTPUT")
+
+# Check if we're running in GitHub Actions
 if not GITHUB_OUTPUT_FILE:
     print(
         "Error: GITHUB_OUTPUT environment variable not set. This script must run in GitHub Actions.",
         file=sys.stderr,
     )
     sys.exit(1)
-
-
-def set_github_output(name, value):
-    """Sets output for GitHub Actions via GITHUB_OUTPUT file."""
-    # Use the official multi-line format with a unique delimiter
-    delimiter = f"ghadelimiter_{name}_{os.urandom(8).hex()}"
-    print(f"Setting output '{name}'...")  # Log which output is being set
-    try:
-        with open(GITHUB_OUTPUT_FILE, "a") as f:
-            f.write(f"{name}<<{delimiter}\n")
-            f.write(f"{value}\n")  # Assumes value doesn't contain delimiter itself
-            f.write(f"{delimiter}\n")
-    except Exception as e:
-        print(
-            f"Error writing to GITHUB_OUTPUT file {GITHUB_OUTPUT_FILE}: {e}",
-            file=sys.stderr,
-        )
-        sys.exit(1)  # Fail fast if output cannot be written
 
 
 # --- Get inputs from environment variables - Fail Fast ---
@@ -115,10 +96,7 @@ print(f"Determined Build Tags: '{build_tags}'")  # Quote for clarity if empty
 version_tag_part = collector_version.lstrip("v")
 # Always include release group in tag and title
 release_tag = f"{distribution}-v{version_tag_part}-{release_group}"
-# Use requested title format: Release distribution:<name> v<version> (<group>)
-release_title = (
-    f"Release distribution:{distribution} v{version_tag_part} ({release_group})"
-)
+release_title = f"Release: distribution: {distribution} | version: {version_tag_part} | group: {release_group}"
 
 print(f"Release Tag: {release_tag}")
 print(f"Release Title: {release_title}")

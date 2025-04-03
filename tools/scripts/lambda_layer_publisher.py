@@ -12,13 +12,13 @@ A comprehensive script to handle AWS Lambda layer publishing:
 - Outputs a summary of the action
 """
 
-import argparse
 import hashlib
 import os
 import re
 import sys
 from datetime import datetime, timezone
 from typing import Optional, Tuple
+import click
 
 
 # Import UI utilities
@@ -45,6 +45,9 @@ try:
 except ImportError:
     error("boto3 library not found", "Please install it: pip install boto3")
     sys.exit(1)
+
+# Import GitHub utilities
+from otel_layer_utils.github_utils import set_github_output
 
 # Default values
 DEFAULT_UPSTREAM_REPO = "open-telemetry/opentelemetry-lambda"
@@ -462,29 +465,15 @@ def create_github_summary(
         error("Error writing to GITHUB_STEP_SUMMARY", str(e))
 
 
-def set_github_output(name: str, value: str) -> None:
-    """Set an output variable for GitHub Actions."""
-    github_output = os.environ.get("GITHUB_OUTPUT")
-    if github_output:
-        try:
-            with open(github_output, "a") as f:
-                # Ensure value doesn't contain problematic characters for the output format
-                # Basic sanitization: replace newline with space
-                sanitized_value = str(value).replace("\n", " ")
-                f.write(f"{name}={sanitized_value}\n")
-        except Exception as e:
-            error("Error writing to GITHUB_OUTPUT", str(e))
-
-
 def check_and_repair_dynamodb(
-    args, existing_layer_arn: str, md5_hash: str, layer_version_str: str
+    args_dict, existing_layer_arn: str, md5_hash: str, layer_version_str: str
 ):
     """Checks if metadata for an existing layer ARN is in DynamoDB and adds it if missing."""
     subheader("Checking DynamoDB")
     status("Checking metadata", existing_layer_arn)
 
     pk = existing_layer_arn
-    sk = args.distribution
+    sk = args_dict["distribution"]
 
     def check_dynamodb():
         try:
@@ -507,15 +496,17 @@ def check_and_repair_dynamodb(
             "pk": pk,
             "sk": sk,
             "layer_arn": existing_layer_arn,
-            "region": args.region,
-            "base_name": args.layer_name,
-            "architecture": args.architecture,
-            "distribution": args.distribution,
+            "region": args_dict["region"],
+            "base_name": args_dict["layer_name"],
+            "architecture": args_dict["architecture"],
+            "distribution": args_dict["distribution"],
             "layer_version_str": layer_version_str,
-            "collector_version_input": args.collector_version,
+            "collector_version_input": args_dict["collector_version"],
             "md5_hash": md5_hash,
             "publish_timestamp": datetime.now(timezone.utc).isoformat(),
-            "compatible_runtimes": args.runtimes.split() if args.runtimes else None,
+            "compatible_runtimes": args_dict["runtimes"].split()
+            if args_dict["runtimes"]
+            else None,
         }
         # Attempt to write the missing record
         write_success = write_metadata_to_dynamodb(metadata)
@@ -527,88 +518,102 @@ def check_and_repair_dynamodb(
         info("Metadata exists", "No repair needed")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="AWS Lambda Layer Publisher")
-    # Priority: Argument > Environment Variable > Default
-    # Required args must come from one of the first two.
-    parser.add_argument(
-        "--layer-name",
-        default=os.environ.get("PY_LAYER_NAME"),
-        required=not os.environ.get("PY_LAYER_NAME"),
-        help="Base layer name (e.g., custom-otel-collector). Env: PY_LAYER_NAME",
-    )
-    parser.add_argument(
-        "--artifact-name",
-        default=os.environ.get("PY_ARTIFACT_NAME"),
-        required=not os.environ.get("PY_ARTIFACT_NAME"),
-        help="Path to the layer zip artifact file. Env: PY_ARTIFACT_NAME",
-    )
-    parser.add_argument(
-        "--region",
-        default=os.environ.get("PY_REGION"),
-        required=not os.environ.get("PY_REGION"),
-        help="AWS region to publish the layer. Env: PY_REGION",
-    )
-    parser.add_argument(
-        "--architecture",
-        default=os.environ.get("PY_ARCHITECTURE"),
-        help="Layer architecture (amd64 or arm64). Env: PY_ARCHITECTURE",
-    )
-    parser.add_argument(
-        "--runtimes",
-        default=os.environ.get("PY_RUNTIMES"),
-        help="Space-delimited list of compatible runtimes. Env: PY_RUNTIMES",
-    )
-    parser.add_argument(
-        "--release-group",
-        default=os.environ.get("PY_RELEASE_GROUP", "prod"),
-        help="Release group (dev or prod, default: prod). Env: PY_RELEASE_GROUP",
-    )
-    parser.add_argument(
-        "--layer-version",
-        default=os.environ.get("PY_LAYER_VERSION"),
-        help="Specific version override for layer naming. Env: PY_LAYER_VERSION",
-    )
-    parser.add_argument(
-        "--distribution",
-        default=os.environ.get("PY_DISTRIBUTION", "default"),
-        help="Distribution name (default: default). Env: PY_DISTRIBUTION",
-    )
-    parser.add_argument(
-        "--collector-version",
-        default=os.environ.get("PY_COLLECTOR_VERSION"),
-        help="Version of the OpenTelemetry collector included. Env: PY_COLLECTOR_VERSION",
-    )
-    parser.add_argument(
-        "--public",
-        action="store_true",
-        default=os.environ.get("PY_PUBLIC", "").lower() in ("true", "yes", "1"),
-        help="Make the layer publicly accessible. Env: PY_PUBLIC",
-    )
+# Use callbacks for default values to support environment variable fallbacks
+def env_bool(env_var, default=False):
+    """Convert environment variable to boolean"""
+    val = os.environ.get(env_var, "").lower()
+    if val in ("true", "yes", "1"):
+        return True
+    return default
 
-    args = parser.parse_args()
+
+@click.command()
+@click.option(
+    "--layer-name",
+    required=True,
+    help="Base layer name (e.g., custom-otel-collector)",
+)
+@click.option(
+    "--artifact-name",
+    required=True,
+    help="Path to the layer zip artifact file",
+)
+@click.option(
+    "--region",
+    required=True,
+    help="AWS region to publish the layer",
+)
+@click.option(
+    "--architecture",
+    help="Layer architecture (amd64 or arm64)",
+)
+@click.option(
+    "--runtimes",
+    help="Space-delimited list of compatible runtimes",
+)
+@click.option(
+    "--release-group",
+    default="prod",
+    help="Release group (dev or prod, default: prod)",
+)
+@click.option(
+    "--layer-version",
+    help="Specific version override for layer naming",
+)
+@click.option(
+    "--distribution",
+    default="default",
+    help="Distribution name (default: default)",
+)
+@click.option(
+    "--collector-version",
+    help="Version of the OpenTelemetry collector included",
+)
+@click.option(
+    "--make-public",
+    type=click.BOOL,
+    default=True,
+    help="Make the layer publicly accessible (true/false)",
+)
+@click.option(
+    "--build-tags",
+    default="",
+    help="Comma-separated build tags used for the layer",
+)
+def main(
+    layer_name,
+    artifact_name,
+    region,
+    architecture,
+    runtimes,
+    release_group,
+    layer_version,
+    distribution,
+    collector_version,
+    make_public,
+    build_tags,
+):
+    """AWS Lambda Layer Publisher"""
 
     header("Lambda layer publisher")
 
     # Step 1: Construct layer name
     subheader("Constructing layer name")
     layer_name, arch_str, layer_version_str = construct_layer_name(
-        args.layer_name,
-        args.architecture,
-        args.distribution,
-        args.layer_version,
-        args.collector_version,
-        args.release_group,
+        layer_name,
+        architecture,
+        distribution,
+        layer_version,
+        collector_version,
+        release_group,
     )
 
     # Step 2: Calculate MD5 hash
     subheader("Calculating MD5 hash")
-    md5_hash = calculate_md5(args.artifact_name)
+    md5_hash = calculate_md5(artifact_name)
 
     # Step 3: Check if layer exists using Lambda API
-    skip_publish, existing_layer_arn = check_layer_exists(
-        layer_name, md5_hash, args.region
-    )
+    skip_publish, existing_layer_arn = check_layer_exists(layer_name, md5_hash, region)
 
     # Set output for GitHub Actions early
     set_github_output("skip_publish", str(skip_publish).lower())
@@ -616,29 +621,41 @@ def main():
     layer_arn = existing_layer_arn  # Use existing ARN if found
     dynamo_success = False
 
+    # Store args in a dictionary for check_and_repair_dynamodb
+    args_dict = {
+        "layer_name": layer_name,
+        "artifact_name": artifact_name,
+        "region": region,
+        "architecture": architecture,
+        "runtimes": runtimes,
+        "release_group": release_group,
+        "layer_version": layer_version,
+        "distribution": distribution,
+        "collector_version": collector_version,
+        "public": make_public,
+    }
+
     # Step 4: Publish layer if needed
     if not skip_publish:
         info("Publishing new layer version", "Creating new AWS Lambda layer")
-        # Read build tags from environment variable
-        build_tags_env = os.environ.get("PY_BUILD_TAGS", "")
         layer_arn = publish_layer(
             layer_name,
-            args.artifact_name,
+            artifact_name,
             md5_hash,
-            args.region,
+            region,
             arch_str,
-            args.runtimes,
-            build_tags=build_tags_env,
+            runtimes,
+            build_tags=build_tags,
         )
         if layer_arn:
             # Step 5: Make layer public only if explicitly requested
             public_success = True
-            if args.public:
-                public_success = make_layer_public(layer_name, layer_arn, args.region)
+            if make_public:
+                public_success = make_layer_public(layer_name, layer_arn, region)
             else:
                 info(
                     "Keeping layer private",
-                    "Use --public to make it publicly accessible",
+                    "Use --make-public true to make it publicly accessible",
                 )
 
             if public_success:
@@ -646,21 +663,19 @@ def main():
                 info("Preparing metadata for new layer", "For DynamoDB storage")
                 metadata = {
                     "pk": layer_arn,
-                    "sk": args.distribution,
+                    "sk": distribution,
                     "layer_arn": layer_arn,
-                    "region": args.region,
-                    "base_name": args.layer_name,
-                    "architecture": args.architecture,
-                    "distribution": args.distribution,
+                    "region": region,
+                    "base_name": layer_name,
+                    "architecture": architecture,
+                    "distribution": distribution,
                     "layer_version_str": layer_version_str,
-                    "collector_version_input": args.collector_version,
+                    "collector_version_input": collector_version,
                     "md5_hash": md5_hash,
                     "publish_timestamp": datetime.now(timezone.utc).isoformat(),
-                    "public": args.public,  # Track whether the layer is public
+                    "public": make_public,  # Track whether the layer is public
                     # Store as a list instead of a set for DynamoDB List (L) type
-                    "compatible_runtimes": args.runtimes.split()
-                    if args.runtimes
-                    else None,
+                    "compatible_runtimes": runtimes.split() if runtimes else None,
                 }
                 dynamo_success = write_metadata_to_dynamodb(metadata)
                 if not dynamo_success:
@@ -675,7 +690,7 @@ def main():
         else:
             # Handle case where publishing failed
             error(
-                f"Layer publishing failed for {layer_name} in {args.region}",
+                f"Layer publishing failed for {layer_name} in {region}",
                 "No ARN generated",
             )
             sys.exit(1)  # Exit if publish fails
@@ -687,7 +702,9 @@ def main():
         layer_arn = existing_layer_arn  # Ensure layer_arn is set to the existing one
 
         # Check if the metadata for this existing layer is in DynamoDB and repair if needed
-        check_and_repair_dynamodb(args, existing_layer_arn, md5_hash, layer_version_str)
+        check_and_repair_dynamodb(
+            args_dict, existing_layer_arn, md5_hash, layer_version_str
+        )
         # Note: We don't set dynamo_success here, as the goal was just checking/repairing.
         # The summary will correctly reflect 'Reused existing layer'.
 
@@ -699,14 +716,14 @@ def main():
         subheader("Layer processing complete")
         create_github_summary(
             layer_name,
-            args.region,
+            region,
             layer_arn,  # Use the ARN (new or existing)
             md5_hash,
             skip_publish,  # Pass the result of the initial check
-            args.artifact_name,
-            args.distribution,
-            args.architecture,
-            args.collector_version,
+            artifact_name,
+            distribution,
+            architecture,
+            collector_version,
         )
     else:
         # This case should ideally not be reached if publishing failed (exited)

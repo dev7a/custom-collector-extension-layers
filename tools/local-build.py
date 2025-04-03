@@ -555,32 +555,52 @@ def main(
         # --- Sub-step: Prepare Publish Environment ---
         subheader("Preparing for publish")
 
-        # Prepare environment variables for the publisher script
-        publish_env = {
-            "PY_LAYER_NAME": layer_name,
-            "PY_ARTIFACT_NAME": str(layer_file),  # Publisher expects path to zip
-            "PY_REGION": region,
-            "PY_ARCHITECTURE": architecture,
-            "PY_RUNTIMES": runtimes,
-            "PY_RELEASE_GROUP": "local",  # Always use 'local' for testing
-            "PY_DISTRIBUTION": distribution,
-            "PY_COLLECTOR_VERSION": upstream_version,  # Add version
-            "PY_BUILD_TAGS": build_tags_string,  # Add build tags
-            "PY_PUBLIC": str(public).lower(),
-        }
-
         # Print debug info if verbose
         if verbose:
-            info("Debug info", "Publishing with environment variables:")
-            for key, value in publish_env.items():
-                detail(key, value)
+            info("Debug info", "Publishing with parameters:")
+            detail("Layer name", layer_name)
+            detail("Artifact", str(layer_file))
+            detail("Region", region)
+            detail("Architecture", architecture)
+            detail("Runtimes", runtimes)
+            detail("Release group", "local")
+            detail("Distribution", distribution)
+            detail("Collector version", upstream_version)
+            detail("Build tags", build_tags_string)
+            detail("Make public", str(public).lower())
 
         # --- Sub-step: Execute Publish Script ---
         subheader("Publishing layer")
         publisher_script = scripts_dir / "lambda_layer_publisher.py"
+
+        # Build command with all arguments including build-tags
+        publish_cmd = [
+            sys.executable,
+            str(publisher_script),
+            "--layer-name",
+            layer_name,
+            "--artifact-name",
+            str(layer_file),
+            "--region",
+            region,
+            "--architecture",
+            architecture,
+            "--runtimes",
+            runtimes,
+            "--release-group",
+            "local",  # Always use 'local' for testing
+            "--distribution",
+            distribution,
+            "--collector-version",
+            upstream_version,
+            "--make-public",
+            str(public).lower(),
+            "--build-tags",
+            build_tags_string,
+        ]
+
         publish_result, github_env = run_command(
-            [sys.executable, str(publisher_script)],
-            env=publish_env,
+            publish_cmd,
             capture_github_env=True,
             capture_output=True,  # Capture output to parse ARN if needed
         )
@@ -629,14 +649,4 @@ def main(
 
 
 if __name__ == "__main__":
-    # Ensure PyYAML is available for get_release_info.py if run locally
-    try:
-        import yaml
-    except ImportError:
-        error("PyYAML is required but not installed")
-        detail(
-            "Hint",
-            "pip install -r requirements-dev.txt or pip install pyyaml click boto3",
-        )
-        sys.exit(1)
     main()

@@ -8,7 +8,6 @@ configuration, and building the layer package. Version and build tags are
 expected to be passed via environment variables from the GitHub workflow.
 """
 
-import argparse
 import os
 import shutil
 import subprocess
@@ -310,7 +309,46 @@ def add_dependencies(
         sys.exit(1)
 
 
-def main():
+@click.command()
+@click.option(
+    "-r",
+    "--upstream-repo",
+    default=DEFAULT_UPSTREAM_REPO,
+    help=f"Upstream repository (default: {DEFAULT_UPSTREAM_REPO})",
+)
+@click.option(
+    "-b",
+    "--upstream-ref",
+    default=DEFAULT_UPSTREAM_REF,
+    help=f"Upstream Git reference (branch, tag, SHA) (default: {DEFAULT_UPSTREAM_REF})",
+)
+@click.option(
+    "-d",
+    "--distribution",
+    default=DEFAULT_DISTRIBUTION,
+    help="Distribution name (used for logging)",
+)
+@click.option(
+    "-a",
+    "--arch",
+    default=DEFAULT_ARCHITECTURE,
+    type=click.Choice(["amd64", "arm64"]),
+    help=f"Architecture (default: {DEFAULT_ARCHITECTURE})",
+)
+@click.option(
+    "-o",
+    "--output-dir",
+    help="Output directory for built layer (default: current directory)",
+)
+@click.option(
+    "-k",
+    "--keep-temp",
+    is_flag=True,
+    help="Keep temporary build directory",
+)
+def main(upstream_repo, upstream_ref, distribution, arch, output_dir, keep_temp):
+    """Build Custom OpenTelemetry Collector Lambda Layer."""
+
     # --- Get Version and Build Tags from Environment (passed by workflow) ---
     upstream_version = os.environ.get("UPSTREAM_VERSION")
     build_tags_string = os.environ.get("BUILD_TAGS_STRING")  # Comma-separated string
@@ -334,48 +372,8 @@ def main():
         ]  # Handle empty tags from split
     # We will rely on the workflow passing the correct tags; local resolution is removed for simplicity
 
-    # --- Argument Parsing (for options not passed via env) ---
-    parser = argparse.ArgumentParser(
-        description="Build Custom OpenTelemetry Collector Lambda Layer."
-    )
-    parser.add_argument(
-        "-r",
-        "--upstream-repo",
-        default=DEFAULT_UPSTREAM_REPO,
-        help=f"Upstream repository (default: {DEFAULT_UPSTREAM_REPO})",
-    )
-    parser.add_argument(
-        "-b",
-        "--upstream-ref",
-        default=DEFAULT_UPSTREAM_REF,
-        help=f"Upstream Git reference (branch, tag, SHA) (default: {DEFAULT_UPSTREAM_REF})",
-    )
-    parser.add_argument(
-        "-d",
-        "--distribution",
-        default=DEFAULT_DISTRIBUTION,
-        help="Distribution name (used for logging)",
-    )
-    parser.add_argument(
-        "-a",
-        "--arch",
-        default=DEFAULT_ARCHITECTURE,
-        choices=["amd64", "arm64"],
-        help=f"Architecture (default: {DEFAULT_ARCHITECTURE})",
-    )
-    parser.add_argument(
-        "-o",
-        "--output-dir",
-        help="Output directory for built layer (default: current directory)",
-    )
-    parser.add_argument(
-        "-k", "--keep-temp", action="store_true", help="Keep temporary build directory"
-    )
-
-    args = parser.parse_args()
-
     # --- Setup Paths and Load Configs ---
-    output_dir = Path(args.output_dir).resolve() if args.output_dir else Path.cwd()
+    output_dir = Path(output_dir).resolve() if output_dir else Path.cwd()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     custom_repo_path = Path.cwd()
@@ -391,10 +389,10 @@ def main():
 
     # Group important configuration properties
     build_props = {
-        "Upstream Repository": args.upstream_repo,
-        "Upstream Ref": args.upstream_ref,
-        "Distribution": args.distribution,
-        "Architecture": args.arch,
+        "Upstream Repository": upstream_repo,
+        "Upstream Ref": upstream_ref,
+        "Distribution": distribution,
+        "Architecture": arch,
         "Upstream Version": upstream_version,
         "Build Tags": build_tags_string or "[none]",
         "Output Directory": str(output_dir),
@@ -402,7 +400,7 @@ def main():
 
     # Less important properties with dimmer styling
     other_props = {
-        "Keep Temp Directory": str(args.keep_temp),
+        "Keep Temp Directory": str(keep_temp),
         "Custom Component Dir": str(component_dir),
         "Dependency Config": str(dependency_yaml_path),
     }
@@ -422,7 +420,7 @@ def main():
         # Step 1: Clone upstream repository
         subheader("Clone upstream repository")
 
-        repo_url = f"https://github.com/{args.upstream_repo}.git"
+        repo_url = f"https://github.com/{upstream_repo}.git"
 
         def clone_repo():
             return subprocess.run(
@@ -432,7 +430,7 @@ def main():
                     "--depth",
                     "1",
                     "--branch",
-                    args.upstream_ref,
+                    upstream_ref,
                     repo_url,
                     str(upstream_dir),
                 ],
@@ -476,7 +474,7 @@ def main():
         # Step 4: Build the collector using 'make package'
         subheader("Build collector")
 
-        build_env = {"GOARCH": args.arch}
+        build_env = {"GOARCH": arch}
         if build_tags_string:  # Use the comma-separated string for the env var
             build_env["BUILDTAGS"] = build_tags_string
 
@@ -508,10 +506,10 @@ def main():
         subheader("Prepare output")
 
         build_output_dir = collector_dir / "build"
-        original_filename = f"opentelemetry-collector-layer-{args.arch}.zip"
+        original_filename = f"opentelemetry-collector-layer-{arch}.zip"
 
         # Always include distribution name in the filename for consistency
-        new_filename = f"collector-{args.arch}-{args.distribution}.zip"
+        new_filename = f"collector-{arch}-{distribution}.zip"
 
         original_build_file = build_output_dir / original_filename
         renamed_build_file = (
@@ -559,7 +557,7 @@ def main():
         sys.exit(1)
     finally:
         # Cleanup temporary directory
-        if not args.keep_temp:
+        if not keep_temp:
             subheader("Cleaning up")
             status("Removing temp dir", temp_dir)
             shutil.rmtree(temp_dir)
@@ -568,5 +566,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # This is a demonstration of using the UI utilities module
     main()

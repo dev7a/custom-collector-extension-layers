@@ -5,6 +5,13 @@
 default:
   description: "Standard upstream components"
   buildtags: [] # Special case: Empty list means no custom tags
+
+full:
+  description: "All available upstream and custom components"
+  buildtags:
+    - lambdacomponents.custom
+    - lambdacomponents.all
+
 minimal:
   description: "OTLP receiver, Batch processor, Decouple processor, OTLP/HTTP exporter"
   buildtags:
@@ -13,31 +20,27 @@ minimal:
     - lambdacomponents.processor.batch
     - lambdacomponents.processor.decouple
     - lambdacomponents.exporter.otlphttp
+
 clickhouse:
   description: "Minimal + ClickHouse exporter"
-  base: minimal # Inherits from minimal
+  base: minimal
   buildtags:
-    # Only add tags specific to this distribution
     - lambdacomponents.exporter.clickhouse
+
 exporters:
   description: "Distribution with all exporters and minimal components"
-  base: minimal # Inherit minimal components
+  base: minimal
   buildtags:
-    # Only need to add the exporter.all tag, the hierarchical resolver should handle dependencies
     - lambdacomponents.exporter.all
+
 s3export:
   description: "Minimal + AWS S3 exporter"
-  base: minimal # Inherits from minimal
+  base: minimal
   buildtags:
     - lambdacomponents.exporter.awss3
+
 signaltometrics:
   description: "Minimal + Signal to Metrics connector"
-  base: minimal # Inherits from minimal
+  base: minimal
   buildtags:
     - lambdacomponents.connector.signaltometrics
-full:
-  description: "All available upstream and custom components"
-  buildtags:
-    # 'full' does not use base, it defines all tags explicitly
-    - lambdacomponents.custom
-    - lambdacomponents.all

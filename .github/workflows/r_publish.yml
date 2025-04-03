@@ -105,18 +105,20 @@ jobs:
 
       - name: Publish Lambda Layer
         id: publish-layer
-        env: # Pass inputs as environment variables
-          PY_LAYER_NAME: ${{ inputs.layer-name }}
-          PY_ARTIFACT_NAME: ${{ inputs.artifact-name }}
-          PY_REGION: ${{ inputs.aws_region }}
-          PY_ARCHITECTURE: ${{ inputs.architecture }}
-          PY_RUNTIMES: ${{ inputs.runtimes }}
-          PY_RELEASE_GROUP: ${{ inputs.release-group }}
-          PY_LAYER_VERSION: ${{ inputs.layer-version }}
-          PY_DISTRIBUTION: ${{ inputs.distribution }}
-          PY_COLLECTOR_VERSION: ${{ inputs.collector-version }}
-          PY_BUILD_TAGS: ${{ inputs.build-tags }} # Pass build tags to script
-          PY_PUBLIC: ${{ inputs.make-public }}
+        env: # Pass only required inputs as environment variables
+          # Keep the PY_BUILD_TAGS environment variable as that's handled specially inside the script
+          PY_BUILD_TAGS: ${{ inputs.build-tags }}
         run: |
-          # Call the script directly - it will read args from environment variables
-          python3 tools/scripts/lambda_layer_publisher.py
+          # Call the script with CLI parameters instead of environment variables
+          python3 tools/scripts/lambda_layer_publisher.py \
+            --layer-name "${{ inputs.layer-name }}" \
+            --artifact-name "${{ inputs.artifact-name }}" \
+            --region "${{ inputs.aws_region }}" \
+            --architecture "${{ inputs.architecture }}" \
+            --runtimes "${{ inputs.runtimes }}" \
+            --release-group "${{ inputs.release-group }}" \
+            --layer-version "${{ inputs.layer-version }}" \
+            --distribution "${{ inputs.distribution }}" \
+            --collector-version "${{ inputs.collector-version }}" \
+            --make-public ${{ inputs.make-public }} \
+            --build-tags "${{ inputs.build-tags }}"

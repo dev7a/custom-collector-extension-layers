@@ -15,10 +15,10 @@ This is a maintenance utility to clean up old or unneeded Lambda layers.
 CAUTION: Use with care as layer deletion CANNOT be undone.
 """
 
-import argparse
 import boto3
 import fnmatch
 import sys
+import click
 from botocore.exceptions import ClientError
 from typing import Dict, List, Tuple
 from yaspin import yaspin
@@ -429,84 +429,85 @@ def confirm_deletion(
     return confirmation == "DELETE"
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Delete AWS Lambda layers matching a pattern across regions."
-    )
-    parser.add_argument(
-        "--pattern",
-        required=True,
-        help="Glob pattern to match layer names (e.g., 'custom-otel-collector-*-0_119_0')",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Perform a dry run without actually deleting layers",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Skip confirmation prompt (use with caution)",
-    )
-    parser.add_argument(
-        "--regions",
-        help="Comma-separated list of regions to check (default: all supported regions)",
-    )
-    parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Show more detailed output"
-    )
-    parser.add_argument(
-        "--skip-dynamodb",
-        action="store_true",
-        help="Skip deletion of DynamoDB records (delete Lambda layer versions only)",
-    )
-    args = parser.parse_args()
+@click.command()
+@click.option(
+    "--pattern",
+    required=True,
+    help="Glob pattern to match layer names (e.g., 'custom-otel-collector-*-0_119_0')",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Perform a dry run without actually deleting layers",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Skip confirmation prompt (use with caution)",
+)
+@click.option(
+    "--regions",
+    help="Comma-separated list of regions to check (default: all supported regions)",
+)
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    help="Show more detailed output",
+)
+@click.option(
+    "--skip-dynamodb",
+    is_flag=True,
+    help="Skip deletion of DynamoDB records (delete Lambda layer versions only)",
+)
+def main(pattern, dry_run, force, regions, verbose, skip_dynamodb):
+    """Delete AWS Lambda layers matching a pattern across regions."""
 
     # Set verbose mode if available
-    set_verbose_mode(args.verbose)
+    set_verbose_mode(verbose)
 
     # Show script banner
     header("AWS LAMBDA LAYER DELETION UTILITY")
 
     # Use specified regions if provided
     global REGIONS
-    if args.regions:
-        REGIONS = [region.strip() for region in args.regions.split(",")]
+    if regions:
+        REGIONS = [region.strip() for region in regions.split(",")]
         status("Using regions", ", ".join(REGIONS))
 
     # Show summary of options
     headers = ["Option", "Value"]
     rows = [
-        ["Pattern", args.pattern],
-        ["Dry Run", "Yes" if args.dry_run else "No"],
-        ["Force", "Yes" if args.force else "No"],
+        ["Pattern", pattern],
+        ["Dry Run", "Yes" if dry_run else "No"],
+        ["Force", "Yes" if force else "No"],
         ["Regions", len(REGIONS)],
-        ["DynamoDB Cleanup", "Disabled" if args.skip_dynamodb else "Enabled"],
+        ["DynamoDB Cleanup", "Disabled" if skip_dynamodb else "Enabled"],
     ]
     format_table(headers, rows, title="Configuration")
 
     # Find matching layers
-    matching_layers = find_matching_layers(args.pattern)
+    matching_layers = find_matching_layers(pattern)
 
     # Print summary
     print_layer_summary(matching_layers)
 
     # Ask for confirmation
-    if not args.dry_run:
-        if not confirm_deletion(matching_layers, args.force, args.skip_dynamodb):
+    if not dry_run:
+        if not confirm_deletion(matching_layers, force, skip_dynamodb):
             warning("Deletion cancelled", "User did not confirm deletion")
             return
 
     # Delete layers
     lambda_success, lambda_failure, dynamo_success, dynamo_failure = delete_layers(
-        matching_layers, args.dry_run, args.skip_dynamodb
+        matching_layers, dry_run, skip_dynamodb
     )
 
     # Print results
     header("RESULTS")
-    if args.dry_run:
+    if dry_run:
         info("Dry Run Summary", f"Would have deleted {lambda_success} layer version(s)")
-        if not args.skip_dynamodb:
+        if not skip_dynamodb:
             info(
                 "Dry Run Summary",
                 f"Would have deleted {dynamo_success} DynamoDB record(s)",
@@ -517,7 +518,7 @@ def main():
         if lambda_failure > 0:
             error("Failed to delete", f"{lambda_failure} layer version(s)")
 
-        if not args.skip_dynamodb:
+        if not skip_dynamodb:
             if dynamo_success > 0:
                 success("Successfully deleted", f"{dynamo_success} DynamoDB record(s)")
             if dynamo_failure > 0:

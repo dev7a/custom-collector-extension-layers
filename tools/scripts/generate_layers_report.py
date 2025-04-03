@@ -3,6 +3,7 @@
 # requires-python = ">=3.9"
 # dependencies = [
 #     "boto3",
+#     "click",
 # ]
 # ///
 """
@@ -10,22 +11,12 @@ Generate a markdown report of all OpenTelemetry Lambda layers across AWS regions
 by fetching metadata from a DynamoDB table.
 """
 
-import argparse
 import fnmatch
 from datetime import datetime
 from typing import Dict, List
 import sys
+import click
 
-# Try importing boto3
-try:
-    import boto3
-    from botocore.exceptions import ClientError
-    from boto3.dynamodb.conditions import Key, Attr
-except ImportError:
-    print(
-        "boto3 library not found. Please install it: pip install boto3", file=sys.stderr
-    )
-    sys.exit(1)
 
 # Import DynamoDB utilities
 from otel_layer_utils.dynamodb_utils import (
@@ -246,30 +237,28 @@ def generate_report(
     print(f"Report generated and saved to {output_file}")
 
 
-def main():
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(
-        description="Generate a markdown report of OpenTelemetry Lambda layers from DynamoDB"
-    )
-    # Keep pattern and output, remove prefix and regions
-    parser.add_argument(
-        "--pattern",
-        default=None,
-        help="Glob pattern to filter layers based on ARN (e.g., '*clickhouse*amd64*')",
-    )
-    parser.add_argument(
-        "--output", default="LAYERS.md", help="Output file path for the markdown report"
-    )
-    args = parser.parse_args()
+@click.command()
+@click.option(
+    "--pattern",
+    default=None,
+    help="Glob pattern to filter layers based on ARN (e.g., '*clickhouse*amd64*')",
+)
+@click.option(
+    "--output",
+    default="LAYERS.md",
+    help="Output file path for the markdown report",
+)
+def main(pattern, output):
+    """Generate a markdown report of OpenTelemetry Lambda layers from DynamoDB"""
 
     # Fetch raw layer items from DynamoDB
-    all_items = fetch_layers_from_dynamodb(args.pattern)
+    all_items = fetch_layers_from_dynamodb(pattern)
 
     # Process items into the structure needed for reporting
     layers_by_dist_arch = process_dynamodb_items(all_items)
 
     # Generate the report
-    generate_report(layers_by_dist_arch, args.output, args.pattern)
+    generate_report(layers_by_dist_arch, output, pattern)
 
 
 if __name__ == "__main__":

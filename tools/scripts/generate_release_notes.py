@@ -3,6 +3,7 @@
 # requires-python = ">=3.9"
 # dependencies = [
 #     "boto3",
+#     "click",
 # ]
 # ///
 """
@@ -10,20 +11,10 @@ Generate markdown release notes for a specific layer distribution and version
 by querying the DynamoDB metadata store.
 """
 
-import argparse
 import sys
+import click
 
-# Try importing boto3
-try:
-    import boto3
-    from botocore.exceptions import ClientError
-    from boto3.dynamodb.conditions import Key
-except ImportError:
-    print(
-        "Error: boto3 library not found. Please install it: pip install boto3",
-        file=sys.stderr,
-    )
-    sys.exit(1)
+from botocore.exceptions import ClientError
 
 # Import DynamoDB utilities
 from otel_layer_utils.dynamodb_utils import DYNAMODB_TABLE_NAME, query_by_distribution
@@ -114,27 +105,27 @@ def generate_notes(distribution: str, collector_version: str, build_tags: str):
     return "\n".join(body_lines)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Generate GitHub Release notes for custom Lambda layers."
-    )
-    parser.add_argument(
-        "--distribution",
-        required=True,
-        help="Layer distribution name (used as DynamoDB PK)",
-    )
-    parser.add_argument(
-        "--collector-version",
-        required=True,
-        help="Collector version string to filter layers (e.g., v0.119.0)",
-    )
-    parser.add_argument(
-        "--build-tags",
-        required=False,
-        default="",
-        help="Comma-separated build tags used for this release",
-    )
-    args = parser.parse_args()
+@click.command()
+@click.option(
+    "--distribution",
+    required=True,
+    help="Layer distribution name (used as DynamoDB PK)",
+)
+@click.option(
+    "--collector-version",
+    required=True,
+    help="Collector version string to filter layers (e.g., v0.119.0)",
+)
+@click.option(
+    "--build-tags",
+    default="",
+    help="Comma-separated build tags used for this release",
+)
+def main(distribution, collector_version, build_tags):
+    """Generate GitHub Release notes for custom Lambda layers."""
+    notes = generate_notes(distribution, collector_version, build_tags)
+    click.echo(notes)  # Print final markdown notes to stdout
 
-    notes = generate_notes(args.distribution, args.collector_version, args.build_tags)
-    print(notes)  # Print final markdown notes to stdout
+
+if __name__ == "__main__":
+    main()
