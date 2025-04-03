@@ -255,8 +255,8 @@ jobs:
         with:
           role-to-assume: ${{ secrets.OTEL_LAMBDA_LAYER_PUBLISH_ROLE_ARN }}
           role-duration-seconds: 1200
-          aws-region: us-east-1 # Use a default region for generating the report
-          mask-aws-account-id: true
+          aws-region: us-east-1
+          mask-aws-account-id: false
 
       - name: Generate Layers Report
         run: |
@@ -309,8 +309,8 @@ jobs:
         with:
           role-to-assume: ${{ secrets.OTEL_LAMBDA_LAYER_PUBLISH_ROLE_ARN }}
           role-duration-seconds: 1200
-          aws-region: us-east-1 # Use a default region for querying DynamoDB
-          mask-aws-account-id: true
+          aws-region: us-east-1
+          mask-aws-account-id: false
 
       - name: Generate Release Body
         id: generate_notes

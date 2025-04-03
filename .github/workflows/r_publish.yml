@@ -101,7 +101,7 @@ jobs:
           role-to-assume: ${{ secrets.OTEL_LAMBDA_LAYER_PUBLISH_ROLE_ARN }}
           role-duration-seconds: 1200
           aws-region: ${{ inputs.aws_region }}
-          mask-aws-account-id: true # Keep masking enabled
+          mask-aws-account-id: false
 
       - name: Publish Lambda Layer
         id: publish-layer
