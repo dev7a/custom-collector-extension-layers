@@ -175,6 +175,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '~1.21.9' # Keep Go version consistent
+          cache: false # Disable caching to avoid the warning
 
       - name: Setup Python
         uses: actions/setup-python@v5
