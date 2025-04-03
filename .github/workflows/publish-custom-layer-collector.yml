@@ -157,7 +157,7 @@ jobs:
           else
             architectures='["${{ github.event.inputs.architecture }}"]'
           fi
-          echo "build_jobs={\"architecture\": ${architectures}}" | tr -d '[:space:]' >> $GITHUB_OUTPUT
+          echo "build_jobs={\"architecture\": ${architectures}}"' >> $GITHUB_OUTPUT
 
           # Release Matrix (Architectures and Regions)
           aws_regions=''
@@ -166,7 +166,7 @@ jobs:
           else
             aws_regions='["${{ github.event.inputs.aws-region }}"]'
           fi
-          echo "release_jobs={\"architecture\": ${architectures}, \"aws_region\": ${aws_regions}}" | tr -d '[:space:]' >> $GITHUB_OUTPUT
+          echo "release_jobs={\"architecture\": ${architectures}, \"aws_region\": ${aws_regions}}"' >> $GITHUB_OUTPUT
       
 
   # Job 2: Build Layer (Matrix Job)
