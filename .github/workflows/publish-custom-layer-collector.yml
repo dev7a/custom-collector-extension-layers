@@ -214,7 +214,7 @@ jobs:
     strategy:
       matrix: ${{ fromJSON(needs.prepare-environment.outputs.release_jobs) }}
     with:
-      artifact-name: collector-${{ matrix.architecture }}.zip
+      artifact-name: collector-${{ matrix.architecture }}-${{ inputs.distribution }}.zip
       layer-name: otel-ext-layer
       architecture: ${{ matrix.architecture }}
       runtimes: "nodejs18.x nodejs20.x nodejs22.x java17 java21 python3.9 python3.10 python3.11 python3.12 python3.13 dotnet6 dotnet8 provided.al2 provided.al2023"
