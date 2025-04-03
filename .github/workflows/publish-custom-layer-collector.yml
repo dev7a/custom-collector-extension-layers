@@ -103,8 +103,8 @@ jobs:
       - name: Checkout Upstream Repo
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.upstream-repo }}
-          ref: ${{ inputs.upstream-ref }}
+          repository: ${{ github.event.inputs.upstream-repo }}
+          ref: ${{ github.event.inputs.upstream-ref }}
           path: upstream # Checkout to ./upstream directory
           fetch-depth: 1 # Only need the latest commit for version info
 
@@ -190,13 +190,13 @@ jobs:
           UPSTREAM_VERSION: ${{ needs.prepare-environment.outputs.collector_version }}
           BUILD_TAGS_STRING: ${{ needs.prepare-environment.outputs.build_tags_string }}
         run: |
-          echo "Building layer for architecture: ${{ matrix.architecture }} and distribution: ${{ inputs.distribution }}"
+          echo "Building layer for architecture: ${{ matrix.architecture }} and distribution: ${{ github.event.inputs.distribution }}"
           echo "With release jobs: ${{ needs.prepare-environment.outputs.release_jobs }}"
           mkdir -p ./build
           python tools/scripts/build_extension_layer.py \
-            --upstream-repo ${{ inputs.upstream-repo }} \
-            --upstream-ref ${{ inputs.upstream-ref }} \
-            --distribution ${{ inputs.distribution }} \
+            --upstream-repo ${{ github.event.inputs.upstream-repo }} \
+            --upstream-ref ${{ github.event.inputs.upstream-ref }} \
+            --distribution ${{ github.event.inputs.distribution }} \
             --arch ${{ matrix.architecture }} \
             --output-dir ./build
             # Version and build tags are passed via ENV
@@ -204,17 +204,19 @@ jobs:
       - name: Upload Collector Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: collector-${{ matrix.architecture }}-${{ inputs.distribution }}.zip
-          path: ./build/collector-${{ matrix.architecture }}-${{ inputs.distribution }}.zip
+          name: collector-${{ matrix.architecture }}-${{ github.event.inputs.distribution }}.zip
+          path: ./build/collector-${{ matrix.architecture }}-${{ github.event.inputs.distribution }}.zip
 
   # Job 3: Release Layer (Matrix Job, uses reusable workflow)
   release-layer:
     uses: ./.github/workflows/r_publish.yml
-    needs: [prepare-environment, build-layer] # Depends on release info and built artifacts
+    needs: 
+      - prepare-environment
+      - build-layer
     strategy:
       matrix: ${{ fromJSON(needs.prepare-environment.outputs.release_jobs) }}
     with:
-      artifact-name: collector-${{ matrix.architecture }}-${{ inputs.distribution }}.zip
+      artifact-name: collector-${{ matrix.architecture }}-${{ github.event.inputs.distribution }}.zip
       layer-name: otel-ext-layer
       architecture: ${{ matrix.architecture }}
       runtimes: "nodejs18.x nodejs20.x nodejs22.x java17 java21 python3.9 python3.10 python3.11 python3.12 python3.13 dotnet6 dotnet8 provided.al2 provided.al2023"
@@ -257,8 +259,8 @@ jobs:
         run: |
           # Generate a distribution-specific report
           python tools/scripts/generate_layers_report.py \
-            --pattern "*-${{ inputs.distribution }}*" \
-            --output "LAYERS-${{ inputs.distribution }}.md"
+            --pattern "*-${{ github.event.inputs.distribution }}*" \
+            --output "LAYERS-${{ github.event.inputs.distribution }}.md"
 
           # Also generate a full report
           python tools/scripts/generate_layers_report.py \
@@ -325,14 +327,14 @@ jobs:
       - name: Download Layer Artifacts (amd64)
         uses: actions/download-artifact@v4
         with:
-          name: collector-amd64.zip
+          name: collector-amd64-${{ github.event.inputs.distribution }}.zip
           path: ./release-assets/
         if: ${{ github.event.inputs.architecture == 'all' || github.event.inputs.architecture == 'amd64' }}
 
       - name: Download Layer Artifacts (arm64)
         uses: actions/download-artifact@v4
         with:
-          name: collector-arm64.zip
+          name: collector-arm64-${{ github.event.inputs.distribution }}.zip
           path: ./release-assets/
         if: ${{ github.event.inputs.architecture == 'all' || github.event.inputs.architecture == 'arm64' }}
 
